@@ -26,6 +26,7 @@ Last updated: 2026-07-14
 | R17 | EDA-style honesty + agent_loop | **done** | `release_honesty.py` / `agent_loop.py` |
 | R18 | Wokwi scaffold (Espressif third-party) | **done** | `chip_sim/wokwi/` + `run_wokwi_smoke.py` |
 | R19 | Golden replay + fault-inject must-red | **done** | `cases/golden` + `--integrity-inject` |
+| R20 | 社区 ESP 模拟文 vs 官方纠偏 | **done** | `docs/specs/2026-07-14-community-esp-sim-vs-official.md` |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 
@@ -57,6 +58,7 @@ $env:GRBL_ROOT='D:\Users\Grbl_Esp32'; python scripts/full_release_smoke.py --wit
 
 - Host sim ≠ product binary.
 - G3b paper/BT requires operator evidence; gate fails closed if missing when in scope.
+- 社区文 `idf.py simulate` **不可信**；官方是 `idf.py qemu` + host-apps — 见 [community-esp-sim-vs-official](./specs/2026-07-14-community-esp-sim-vs-official.md)。
 
 ## Residual gaps → solutions
 

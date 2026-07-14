@@ -32,7 +32,9 @@ fz/
 - [软件全链路 SIL](docs/specs/2026-07-14-software-fullchain-sim-design.md)  
 - [A2A 工作流](docs/specs/2026-07-14-a2a-sim-release-workflow-design.md)  
 - [开源仿真融合目录（含芯片级）](docs/specs/2026-07-14-opensource-sim-fusion-catalog.md)  
-- [多源调研 GH/官方/知乎/Gitee/论坛](docs/specs/2026-07-14-multi-source-sim-research.md) 
+- [多源调研 GH/官方/知乎/Gitee/论坛](docs/specs/2026-07-14-multi-source-sim-research.md)  
+- [社区 ESP 模拟文 vs 官方纠偏](docs/specs/2026-07-14-community-esp-sim-vs-official.md)  
+
 
 ```powershell
 # ★ Agent vibe coding（首选：改完代码主动跑，少烧录）

@@ -61,10 +61,12 @@
 
 | 方案 | 链接 | 能做什么 |
 |------|------|----------|
-| **Espressif QEMU** | [IDF 文档](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/tools/qemu.html) · [espressif/qemu](https://github.com/espressif/qemu) | 官方芯片 SIL；Windows 有预构建 |
+| **Espressif QEMU** | [IDF 文档](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/tools/qemu.html) · [espressif/qemu](https://github.com/espressif/qemu) | 官方芯片 SIL；Windows 有预构建；命令是 **`idf.py qemu`** |
+| **Host apps** | [Running on Host](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/host-apps.html) | 主机上跑 IDF 组件；**不是** `simulate` chip target |
 | **Wokwi CI** | [docs](https://docs.wokwi.com/wokwi-ci/getting-started) · [乐鑫第三方工具](https://docs.espressif.com/projects/esp-idf/zh_CN/latest/esp32s3/third-party-tools/wokwi.html) · [wokwi.com](https://wokwi.com/) | 板级+串口/Wi‑Fi 仿真、CLI/CI；**非**纸路签字 |
 | **Renode** | [renode.io](https://renode.io/) | 系统级/多节点 |
 | linux.do | 常推 Wokwi 做 ESP 教学仿真 | 验证「有人用」 |
+| CSDN/社区长文 | 「`idf.py simulate` / TARGET=simulate」 | **不可照抄**；见 [community-esp-sim-vs-official](./specs/2026-07-14-community-esp-sim-vs-official.md) |
 
 本仓融合：`docs/specs/2026-07-14-opensource-sim-fusion-catalog.md` + `chip_sim/`。
 
@@ -106,6 +108,12 @@ Arduino 产品固件 + 纸路/BT/I2S **≠** IDF 示例在 QEMU 上绿；Wi‑Fi
 
 **结论：没有「社区开箱跑本产品 Arduino Grbl 全栈」的成熟解。**  
 不是没搜到，是 **工具边界**；解决方案是 **不把它当门禁**，而不是硬上。
+
+### 社区文 vs 官方（R20 纠偏）
+
+长文常把 **Host 行为建模**、**QEMU**、**Wokwi** 揉成 `idf.py simulate`。  
+**官方可复现路径：** `idf.py qemu monitor` / host-apps；**本仓 agent 主路径仍是** `scripts/agent_gate.py`（grblHAL host SIL）。  
+完整打假表与 Agent 纪律：[`docs/specs/2026-07-14-community-esp-sim-vs-official.md`](./specs/2026-07-14-community-esp-sim-vs-official.md)。
 
 ---
 

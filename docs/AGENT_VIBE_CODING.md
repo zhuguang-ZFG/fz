@@ -59,6 +59,8 @@ python -m unittest scripts.test_gate_integrity -v
 - 「纸路/BT/OTA 已验证」— 需要 `hil_to_gate` + g3/g4  
 - 「本 fork 与 grblHAL 行为完全一致」  
 - 「QEMU 产品全栈 OK」  
+- 「已按 `idf.py simulate` 无硬件验完全固件」— 官方路径是 `idf.py qemu` / host-apps；**产品主路径是 agent_gate**。详见 `docs/specs/2026-07-14-community-esp-sim-vs-official.md`  
+
 
 ---
 

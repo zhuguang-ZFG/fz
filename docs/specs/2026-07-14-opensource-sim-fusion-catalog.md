@@ -48,8 +48,10 @@
 | 项目 | 链接 | 能力 | 对本产品的硬限制 |
 |------|------|------|------------------|
 | **Espressif QEMU** | [IDF QEMU guide](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/tools/qemu.html) · [espressif/qemu](https://github.com/espressif/qemu) | Xtensa/RISC-V 指令、部分外设、eFuse、GDB、`idf.py qemu` | 面向 **ESP-IDF** 工作流；**Wi‑Fi/BT 弱或不完整**；本仓是 **Arduino-ESP32 + 重度定制**，`.bin` 未必能直接当 IDF flash 镜像跑通全栈 |
+| **Host apps** | [Running on Host](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/host-apps.html) | 主机侧组件实现/测试 | **≠** 社区文 `simulate` 目标；不替代 grblHAL |
 | ESP-IDF pytest-embedded | 乐鑫文档 | host / target / qemu 分层测 | 需 IDF 工程结构；融合成本高 |
 | 社区 qemu_esp32 历史 fork | Ebiroll 等 | 早期实验 | **过时**；用官方 fork |
+| 社区「免费 ESP32 模拟器」长文 | CSDN 等 | 分层理念可取 | **`idf.py simulate` 不可信** — 见 [community-esp-sim-vs-official](./2026-07-14-community-esp-sim-vs-official.md) |
 
 **Windows：** 官方文档写明有 **x86_64 Windows 预构建**（`idf_tools.py install qemu-xtensa` 或 [espressif/qemu releases](https://github.com/espressif/qemu/releases)）。
 
