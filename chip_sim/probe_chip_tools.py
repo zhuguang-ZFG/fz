@@ -33,6 +33,23 @@ def _which(name: str) -> Optional[str]:
     return shutil.which(name)
 
 
+def _find_vendored_qemu() -> Optional[str]:
+    root = FZ_ROOT / "vendor" / "espressif_qemu"
+    if not root.is_dir():
+        return None
+    for p in (
+        root / "bin" / "qemu-system-xtensa.exe",
+        root / "bin" / "qemu-system-xtensa",
+    ):
+        if p.is_file():
+            return str(p)
+    for p in root.rglob("qemu-system-xtensa.exe"):
+        return str(p)
+    for p in root.rglob("qemu-system-xtensa"):
+        return str(p)
+    return None
+
+
 def _sha16(path: Path) -> Optional[str]:
     try:
         h = hashlib.sha256()
@@ -77,12 +94,16 @@ def find_firmware(grbl_root: Optional[Path]) -> Optional[Dict[str, Any]]:
 
 def probe() -> Dict[str, Any]:
     tools = {
-        "qemu_system_xtensa": _which("qemu-system-xtensa"),
+        "qemu_system_xtensa": _which("qemu-system-xtensa") or _find_vendored_qemu(),
         "qemu_system_riscv32": _which("qemu-system-riscv32"),
         "wokwi_cli": _which("wokwi-cli"),
         "renode": _which("renode") or _which("renode.exe"),
         "idf_py": _which("idf.py"),
+        "esptool": _which("esptool") or _which("esptool.py") or _which("esptool.exe"),
     }
+    env_q = os.environ.get("ESP_QEMU") or os.environ.get("QEMU_SYSTEM_XTENSA")
+    if env_q and Path(env_q).is_file():
+        tools["qemu_system_xtensa"] = env_q
     # common Windows scoop/user paths (soft hints only)
     extra_hints: List[str] = []
     for base in (

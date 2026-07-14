@@ -66,7 +66,18 @@
 | **Renode** | [renode.io](https://renode.io/) | 系统级/多节点 |
 | linux.do | 常推 Wokwi 做 ESP 教学仿真 | 验证「有人用」 |
 
-本仓融合：`docs/specs/2026-07-14-opensource-sim-fusion-catalog.md` + `chip_sim/probe_chip_tools.py`。
+本仓融合：`docs/specs/2026-07-14-opensource-sim-fusion-catalog.md` + `chip_sim/`。
+
+### 本机已落地的 QEMU 实验路径（R9）
+
+```powershell
+.\chip_sim\install_qemu_windows.ps1   # Espressif 预构建 → vendor/espressif_qemu
+$env:GRBL_ROOT='D:\Users\Grbl_Esp32'
+python chip_sim/build_flash_image.py  # bootloader+partitions+app → 4MB flash
+python chip_sim/run_qemu_smoke.py     # 从 package root 启 QEMU，抓 UART
+```
+
+**实测（产品 Arduino `firmware.bin`）：** ROM + 二级 bootloader 可进（`SPI_FAST_FLASH_BOOT` / `entry`）；**app 阶段 Guru Meditation** — 符合「工具有、产品全栈未适配」；**不得**当发版硬门禁。
 
 ### 为何仍不进默认硬门禁
 

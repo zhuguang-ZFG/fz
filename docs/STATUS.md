@@ -15,8 +15,9 @@ Last updated: 2026-07-14
 | R6 | A2A strict template + HIL→gate | **done** | `a2a_workorders/TEMPLATE.md`, `scripts/hil_to_gate.py` |
 | R7 | Windows full host SIL entry | **done** | `scripts/win_full_sim.py` (+ expanded protocol cases) |
 | R8 | Open-source sim fusion + chip probe | **done** | fusion catalog + `chip_sim/probe_chip_tools.py` |
+| R9 | QEMU flash image + smoke helpers | **done** | `build_flash_image` / `run_qemu_smoke` / install ps1 |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
-| — | ESP32 chip QEMU **product** full stack | **out of scope as hard gate** | tools exist; probe optional L5 |
+| — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 
 ## Commands
 
@@ -27,6 +28,10 @@ python scripts/win_full_sim.py
 # 可选：探测本机 Espressif QEMU / Wokwi / Renode（不装也能绿）
 python scripts/win_full_sim.py --with-chip-probe
 python chip_sim/probe_chip_tools.py --firmware-hint
+# QEMU experimental (need install + PIO build):
+# .\chip_sim\install_qemu_windows.ps1
+# $env:GRBL_ROOT='D:\Users\Grbl_Esp32'; python chip_sim/build_flash_image.py
+# python chip_sim/run_qemu_smoke.py
 # .\scripts\win_full_sim.ps1
 python scripts/full_release_smoke.py
 python scripts/hil_to_gate.py --skip-smoke

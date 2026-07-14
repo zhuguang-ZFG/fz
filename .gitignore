@@ -5,6 +5,7 @@ hardware_sim/results/*
 !protocol_sim/results/.gitkeep
 release/bundles/
 results/
+vendor/espressif_qemu/
 **/__pycache__/
 *.pyc
 .EEPROM*.DAT
