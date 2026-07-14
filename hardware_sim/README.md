@@ -19,4 +19,18 @@ Writes:
 
 See `docs/specs/2026-07-14-hardware-sim-optimization-design.md`.
 
-Next: soft-limit cases, I/O plant inject, StepOracle parser tests.
+## Contents
+
+| File | Role |
+|------|------|
+| `run_hw_sim.py` | motion delta, travel settings, soft-limit gate, step logs |
+| `step_oracle.py` | parse `-s` logs → mm travel |
+| `test_step_oracle.py` | unit tests (no sim) |
+| `product_stubs.md` | honest gaps (paper/BT/soft-limit trip) |
+
+```powershell
+python -m unittest hardware_sim/test_step_oracle.py -v
+python hardware_sim/run_hw_sim.py --start-sim
+```
+
+Next: I/O plant inject (limit/probe), tighter StepOracle per-move windows.

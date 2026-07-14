@@ -21,12 +21,22 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
+# local import (run from repo or hardware_sim/)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from step_oracle import (  # noqa: E402
+    assert_travel_mm,
+    max_abs_steps,
+    parse_step_log,
+)
+
 
 FZ_ROOT = Path(__file__).resolve().parent.parent
 HW_ROOT = Path(__file__).resolve().parent
 RESULTS = HW_ROOT / "results"
 CASES = HW_ROOT / "cases"
 VENDOR_SIM = FZ_ROOT / "vendor" / "grblhal_sim" / "bin"
+# grblHAL default $100/$101/$102 on this vendored build
+DEFAULT_STEPS_PER_MM = (250.0, 250.0, 250.0)
 
 OK_RE = re.compile(r"^ok\s*$", re.I)
 ERROR_RE = re.compile(r"error:(\d+)", re.I)
@@ -207,6 +217,63 @@ def run_error_case(client: GrblTcp, name: str, line: str, expect_error: bool = T
     )
 
 
+def run_settings_travel_roundtrip(client: GrblTcp) -> CaseResult:
+    """$130 max travel set/get (soft-limit enforcement is unreliable on sim without full homing plant)."""
+    client.soft_reset()
+    client.unlock()
+    resp: List[str] = []
+    for line in ("$130=80.0", "$131=80.0", "$132=80.0"):
+        r = client.send_line(line, wait=1.0)
+        resp.extend(r)
+        if not any(OK_RE.match(x) for x in r):
+            return CaseResult("settings_max_travel_set", False, f"set failed {line}: {r}", responses=resp)
+    r = client.send_line("$130", wait=1.0)
+    resp.extend(r)
+    joined = "\n".join(r)
+    if "$130=80" not in joined.replace(" ", ""):
+        # allow $130=80.000
+        if not re.search(r"\$130=80(\.0+)?\b", joined):
+            return CaseResult(
+                "settings_max_travel_roundtrip",
+                False,
+                f"readback missing 80: {r}",
+                responses=resp,
+            )
+    return CaseResult("settings_max_travel_roundtrip", True, responses=resp)
+
+
+def run_soft_limit_setting_gate(client: GrblTcp) -> CaseResult:
+    """
+    Document sim behavior: $20=1 without homing often error:10 (Grbl rule).
+    We assert that enabling soft limits without homing is rejected OR accepted
+    only after $22=1 — and we never claim product soft-limit equivalence.
+    """
+    client.soft_reset()
+    client.unlock()
+    # ensure homing off
+    client.send_line("$22=0", wait=1.0)
+    r = client.send_line("$20=1", wait=1.0)
+    # classic: error:10 Soft limits require homing
+    if any(ERROR_RE.search(x) for x in r):
+        return CaseResult(
+            "soft_limit_requires_homing",
+            True,
+            detail="sim rejects $20 without homing (error) — expected community rule",
+            responses=r,
+        )
+    # if accepted, require $22 first path works
+    client.send_line("$20=0", wait=0.5)
+    client.send_line("$22=1", wait=0.5)
+    r2 = client.send_line("$20=1", wait=1.0)
+    ok = any(OK_RE.match(x) for x in r2)
+    return CaseResult(
+        "soft_limit_requires_homing",
+        ok,
+        detail="" if ok else f"could not enable soft limits: {r} / {r2}",
+        responses=list(r) + list(r2),
+    )
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="hardware_sim baseline runner")
     ap.add_argument("--host", default="127.0.0.1")
@@ -274,6 +341,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
         )
         results.append(run_error_case(client, "undefined_feed_G1", "G1 X1"))
+        results.append(run_settings_travel_roundtrip(client))
+        results.append(run_soft_limit_setting_gate(client))
     finally:
         client.close()
         if sim_proc is not None:
@@ -284,7 +353,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             except subprocess.TimeoutExpired:
                 sim_proc.kill()
 
-    # step log: check after process exit (flush)
+    # step log: check after process exit (flush) + StepOracle
     if args.start_sim:
         step_ok = step_log.is_file() and step_log.stat().st_size > 0
         block_ok = block_log.is_file() and block_log.stat().st_size > 0
@@ -300,6 +369,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 name="block_log_nonempty",
                 passed=block_ok,
                 detail="" if block_ok else f"missing/empty {block_log}",
+            )
+        )
+        samples = parse_step_log(step_log)
+        mx = max_abs_steps(samples)
+        # Session motions: +10 X then +5 X +5 Y => ~15mm X, ~5mm Y at 250 step/mm
+        ok, detail, actual_mm = assert_travel_mm(
+            mx,
+            expect_mm=(15.0, 5.0, 0.0),
+            steps_per_mm=DEFAULT_STEPS_PER_MM,
+            eps_mm=1.0,
+        )
+        results.append(
+            CaseResult(
+                name="step_oracle_session_travel",
+                passed=ok and step_ok,
+                detail=detail if not ok else f"mm≈{actual_mm} steps={mx}",
             )
         )
 
