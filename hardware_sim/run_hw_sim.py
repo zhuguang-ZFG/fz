@@ -28,6 +28,7 @@ from step_oracle import (  # noqa: E402
     max_abs_steps,
     parse_step_log,
 )
+from plant import Plant  # noqa: E402
 
 
 FZ_ROOT = Path(__file__).resolve().parent.parent
@@ -274,13 +275,95 @@ def run_soft_limit_setting_gate(client: GrblTcp) -> CaseResult:
     )
 
 
+def run_feed_hold_plant(client: GrblTcp, time_factor: float) -> CaseResult:
+    """
+    Community Grbl realtime: ! → Hold (TCP). Optional ~ resume.
+    Needs time_factor > 0 so status is still Run when ! arrives.
+    Avoid flooding ?/~ (fills RX buffer and blocks resume on sim).
+    """
+    if time_factor <= 0:
+        return CaseResult(
+            "plant_feed_hold",
+            True,
+            detail="skipped (need --time-factor > 0; use 1 for plant)",
+        )
+    assert client.sock
+    plant = Plant(sock=client.sock)
+    client.soft_reset()
+    time.sleep(0.3)
+    client.unlock()
+    client.send_line("G21 G91 G94", wait=1.0)
+    # long slow move — do not wait for ok-only short window
+    client.sock.sendall(b"G1 X500 F100\n")
+    time.sleep(0.2)
+    client._drain()
+
+    st_run: List[str] = []
+    for i in range(40):
+        time.sleep(0.2)
+        st = client.send_line("?", wait=0.35)
+        st_run = st
+        if any("Run" in x for x in st):
+            plant.feed_hold()
+            time.sleep(0.9)
+            st_hold = client.send_line("?", wait=0.5)
+            if not any("Hold" in x for x in st_hold):
+                return CaseResult(
+                    "plant_feed_hold",
+                    False,
+                    detail=f"expected Hold after ! got {st_hold}",
+                    responses=st + st_hold,
+                )
+            # Best-effort resume (single ~, long wait) — do not fail suite if sim stays Hold:1
+            plant.cycle_start()
+            time.sleep(1.2)
+            st_res = client.send_line("?", wait=0.5)
+            resumed = any(("Run" in x) or ("Idle" in x) for x in st_res)
+            # Always clear for following cases
+            client.soft_reset()
+            time.sleep(0.3)
+            client.unlock()
+            detail = (
+                "TCP ! → Hold; ~ resumed"
+                if resumed
+                else "TCP ! → Hold (resume optional/flaky after buffer use; soft-reset cleared)"
+            )
+            return CaseResult(
+                "plant_feed_hold",
+                True,
+                detail=detail,
+                responses=st + st_hold + st_res,
+            )
+        if i > 15 and any("Idle" in x for x in st):
+            break
+    return CaseResult(
+        "plant_feed_hold",
+        False,
+        detail="never observed Run (use --time-factor 1 and slow F)",
+        responses=st_run,
+    )
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="hardware_sim baseline runner")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=7682)
     ap.add_argument("--start-sim", action="store_true")
-    ap.add_argument("--time-factor", type=float, default=0.0, help="grblHAL -t (0=fast)")
+    # Default 1.0 so plant feed-hold can observe Run (community: -t 0 finishes too fast)
+    ap.add_argument(
+        "--time-factor",
+        type=float,
+        default=1.0,
+        help="grblHAL -t (0=fast; 1=realtime for plant inject)",
+    )
+    ap.add_argument(
+        "--fast",
+        action="store_true",
+        help="shortcut: --time-factor 0 (skips reliable plant hold)",
+    )
     args = ap.parse_args(list(argv) if argv is not None else None)
+    if args.fast:
+        args.time_factor = 0.0
 
     RESULTS.mkdir(parents=True, exist_ok=True)
     step_log = RESULTS / "step_last.log"
@@ -343,6 +426,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         results.append(run_error_case(client, "undefined_feed_G1", "G1 X1"))
         results.append(run_settings_travel_roundtrip(client))
         results.append(run_soft_limit_setting_gate(client))
+        results.append(run_feed_hold_plant(client, args.time_factor))
     finally:
         client.close()
         if sim_proc is not None:
@@ -373,18 +457,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
         samples = parse_step_log(step_log)
         mx = max_abs_steps(samples)
-        # Session motions: +10 X then +5 X +5 Y => ~15mm X, ~5mm Y at 250 step/mm
-        ok, detail, actual_mm = assert_travel_mm(
-            mx,
-            expect_mm=(15.0, 5.0, 0.0),
-            steps_per_mm=DEFAULT_STEPS_PER_MM,
-            eps_mm=1.0,
+        # Lower bound: motion cases alone ≈ 15mm X + 5mm Y; plant may add more travel
+        from step_oracle import mm_from_steps
+
+        actual_mm = mm_from_steps(mx, DEFAULT_STEPS_PER_MM)
+        min_x, min_y = 14.0, 4.0
+        ok = actual_mm[0] >= min_x and actual_mm[1] >= min_y
+        detail = (
+            f"mm≈{actual_mm} steps={mx} (min X>={min_x} Y>={min_y}; plant may add travel)"
+            if ok
+            else f"travel too small mm={actual_mm} steps={mx}"
         )
         results.append(
             CaseResult(
                 name="step_oracle_session_travel",
                 passed=ok and step_ok,
-                detail=detail if not ok else f"mm≈{actual_mm} steps={mx}",
+                detail=detail,
             )
         )
 

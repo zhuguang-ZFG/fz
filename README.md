@@ -45,7 +45,7 @@ $env:GRBLHAL_VALIDATOR = "$PWD\vendor\grblhal_sim\bin\grblHAL_validator.exe"
 
 # 协议回归（自动 -n -t 0 -p 7681）
 python protocol_sim/run_regression.py --start-sim
-# 硬件台架（步进日志 + MPos 增量）
+# 硬件台架（步进日志 + MPos + feed-hold plant，默认 -t 1）
 python hardware_sim/run_hw_sim.py --start-sim
 # 发布门禁（dev scope：无纸路/BT，不要求 G3）
 python scripts/release_gate.py --scope release/scopes/dev-quick.yaml --skip-g0

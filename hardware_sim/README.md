@@ -29,8 +29,14 @@ See `docs/specs/2026-07-14-hardware-sim-optimization-design.md`.
 | `product_stubs.md` | honest gaps (paper/BT/soft-limit trip) |
 
 ```powershell
-python -m unittest hardware_sim/test_step_oracle.py -v
+python -m unittest discover -s hardware_sim -p "test_*.py" -v
+# default -t 1 so feed-hold plant can see Run
 python hardware_sim/run_hw_sim.py --start-sim
+# fast motion only (skips reliable plant hold)
+python hardware_sim/run_hw_sim.py --start-sim --fast
 ```
 
-Next: I/O plant inject (limit/probe), tighter StepOracle per-move windows.
+Inject protocol (community grblHAL_sim): `docs/sim_inject_protocol.md`  
+Plant helper: `plant.py` (TCP `!`/`~`; stdin keys for console).
+
+Next: probe cycle, limit-pin automation if console stdin available, StepOracle per-move windows.

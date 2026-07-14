@@ -244,13 +244,22 @@ def run_g1_hardware_sim(bundle: Path, port: int) -> Dict[str, Any]:
     t0 = time.time()
     # Use different port to avoid clash if protocol left something (should be clean)
     hw_port = port + 1
+    # --time-factor 1: plant feed-hold needs Run state (community grbl realtime)
     proc = subprocess.run(
-        [sys.executable, str(script), "--start-sim", "--port", str(hw_port)],
+        [
+            sys.executable,
+            str(script),
+            "--start-sim",
+            "--port",
+            str(hw_port),
+            "--time-factor",
+            "1",
+        ],
         cwd=str(FZ_ROOT),
         env=env,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=600,
     )
     status = "pass" if proc.returncode == 0 else "fail"
     result = {
