@@ -64,11 +64,15 @@ jobs:
           name: agent-gate-quick
           path: |
             results/agent_gate_last.json
+            results/agent_observe_last.md
+            results/agent_observe_last.json
+            results/triage_last.md
             results/sim_session.json
             protocol_sim/results/last_report.json
             protocol_sim/results/golden_last.json
             protocol_sim/results/integrity_inject_last.json
             protocol_sim/results/case_schema_last.json
+            protocol_sim/results/soft_divergence.json
           if-no-files-found: warn
 
   # R32 (parked): Linux host SIL — opt-in only (low ROI vs Windows vendored sim).
@@ -153,8 +157,13 @@ jobs:
           name: agent-gate-standard
           path: |
             results/agent_gate_last.json
+            results/agent_observe_last.md
+            results/agent_observe_last.json
+            results/triage_last.md
             results/sim_session.json
             protocol_sim/results/last_report.json
             protocol_sim/results/golden_last.json
             protocol_sim/results/integrity_inject_last.json
+            protocol_sim/results/soft_divergence.json
+            hardware_sim/results/last_hw_report.json
           if-no-files-found: warn

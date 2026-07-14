@@ -183,6 +183,89 @@ def build_observe() -> Dict[str, Any]:
             )
         )
 
+    # R40: per-file soft sample radar (even when not high_divergence)
+    soft_files = list(soft.get("files") or []) if isinstance(soft, dict) else []
+    for sf in soft_files:
+        if not isinstance(sf, dict):
+            continue
+        name = str(sf.get("name") or "")
+        n_ok = int(sf.get("ok_lines") or 0)
+        n_err = int(sf.get("err_lines") or 0)
+        total = n_ok + n_err
+        ratio = (n_err / total) if total else 0.0
+        if n_err <= 0:
+            findings.append(
+                _finding(
+                    "info",
+                    "soft_sample",
+                    f"soft sample clean: {name}",
+                    detail=f"ok_lines={n_ok}",
+                    action="",
+                    refs=["protocol_sim/results/soft_divergence.json"],
+                )
+            )
+            continue
+        # extract first error codes from detail if present
+        detail = str(sf.get("detail") or "")
+        sev = "soft" if ratio >= 0.3 or name in high else "info"
+        findings.append(
+            _finding(
+                sev,
+                "soft_sample",
+                f"soft sample errs: {name} err={n_err}/{total} ratio={ratio:.0%}",
+                detail=detail[:300],
+                action=(
+                    "document product divergence or add hard fail if grblHAL should reject"
+                    if sev == "soft"
+                    else ""
+                ),
+                refs=["protocol_sim/results/soft_divergence.json", "protocol_sim/cases/soft/"],
+            )
+        )
+
+    # R40: hardware_sim last report summary (if present)
+    hw_rep = _read_json(FZ_ROOT / "hardware_sim" / "results" / "last_hw_report.json")
+    if isinstance(hw_rep, dict) and hw_rep.get("cases") is not None:
+        cases = [c for c in (hw_rep.get("cases") or []) if isinstance(c, dict)]
+        n_pass = sum(1 for c in cases if c.get("passed") is True)
+        n_fail = sum(1 for c in cases if c.get("passed") is False)
+        step_log = hw_rep.get("step_log") or ""
+        findings.append(
+            _finding(
+                "hard" if n_fail else "info",
+                "hardware_stats",
+                f"last hardware_sim cases {n_pass}/{len(cases)} fail={n_fail}",
+                detail=f"engine={hw_rep.get('engine')} step_log={step_log}",
+                action="python hardware_sim/run_hw_sim.py --start-sim" if n_fail else "",
+                refs=[
+                    "hardware_sim/results/last_hw_report.json",
+                    str(step_log) if step_log else "",
+                ],
+            )
+        )
+        if profile == "quick" and cases:
+            findings.append(
+                _finding(
+                    "info",
+                    "hardware_stale_hint",
+                    "hardware report exists but profile=quick did not re-run hardware",
+                    detail="last_hw_report may be from an older standard run",
+                    action="python scripts/agent_gate.py --profile standard",
+                    refs=["hardware_sim/results/last_hw_report.json"],
+                )
+            )
+    elif profile in ("standard", "deep", "firmware"):
+        findings.append(
+            _finding(
+                "soft",
+                "hardware_missing",
+                "no hardware_sim last_hw_report after non-quick profile",
+                detail="expected after standard/deep/firmware",
+                action="python hardware_sim/run_hw_sim.py --start-sim",
+                refs=["hardware_sim/"],
+            )
+        )
+
     # --- green-path health / optimize ---
     if overall == "pass":
         findings.append(
@@ -444,7 +527,7 @@ def build_observe() -> Dict[str, Any]:
 
     return {
         "suite": "agent_observe",
-        "version": 2,
+        "version": 3,
         "overall_status": overall,
         "profile": profile,
         "touch": touch,
@@ -460,6 +543,16 @@ def build_observe() -> Dict[str, Any]:
             )
             and profile == "quick",
             "fail_without_golden": missing_gold[:20] if missing_gold else [],
+            "soft_files_with_errors": [
+                str(sf.get("name"))
+                for sf in soft_files
+                if isinstance(sf, dict) and int(sf.get("err_lines") or 0) > 0
+            ],
+            "hardware_cases_in_last_report": (
+                len(hw_rep.get("cases") or [])
+                if isinstance(hw_rep, dict)
+                else 0
+            ),
         },
         "findings": findings,
         "next_actions": next_actions[:12],

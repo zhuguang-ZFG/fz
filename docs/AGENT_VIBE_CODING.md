@@ -18,10 +18,11 @@ python scripts/agent_gate.py
 
 | 文件 | 用途 |
 |------|------|
-| `results/agent_observe_last.md` | **R38 首选**：findings + next_actions（可观察/可改进） |
-| `results/agent_observe_last.json` | 同上，机读 |
+| `results/agent_observe_last.md` | **R38/R40 首选**：hard/soft/info/optimize + next_actions |
+| `results/agent_observe_last.json` | 机读；含 `soft_files_with_errors`、`hardware_cases_in_last_report` |
 | `results/triage_last.md` | R34 失败切片汇总 |
 | `results/agent_gate_last.json` | 层状态 + hints |
+| `protocol_sim/results/soft_divergence.json` | 产品样本逐文件 err 雷达 |
 
 ---
 

@@ -31,9 +31,11 @@ class TestAgentObserve(unittest.TestCase):
         self.assertIn("next_actions", data)
         self.assertTrue(len(data["findings"]) >= 1)
         self.assertIn("Agent observe", md.read_text(encoding="utf-8"))
-        self.assertEqual(data.get("version"), 2)
+        self.assertGreaterEqual(int(data.get("version") or 0), 3)
         self.assertIn("summary", data)
         self.assertIn("agent_should_prefer_standard", data["summary"])
+        self.assertIn("soft_files_with_errors", data["summary"])
+        self.assertIn("hardware_cases_in_last_report", data["summary"])
 
     def test_fail_without_golden_helper(self) -> None:
         import importlib.util
