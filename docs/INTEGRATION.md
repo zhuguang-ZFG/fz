@@ -8,6 +8,8 @@ https://github.com/zhuguang-ZFG/fz
 
 本地默认路径建议：`D:/Users/zhugu/fz`（可用 `FZ_ROOT` 覆盖）。
 
+**上线前：** 按 [pre-release defect gate](specs/2026-07-14-pre-release-firmware-defect-gate-design.md) 跑完整 G0–G5；产品纸路实机表仍以 Grbl 仓 `docs/ACCEPTANCE_CHECKLIST.md` 为准并归档进 `fz/release/bundles/`。
+
 ## Grbl_Esp32
 
 - 删除或停用仓内 `tools/sim_regression`、`tools/grblhal_sim` 的继续开发；改为文档指向本仓。  

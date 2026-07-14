@@ -14,6 +14,9 @@ vendor/grblhal_sim/src/
 vendor/grblhal_sim/build/
 vendor/grblhal_sim/src_repo/
 
+# A2A：保留模板；RESULT 可本地保留或按需提交
+a2a_workorders/RESULT_*.md
+
 # Editor
 .vscode/
 .idea/

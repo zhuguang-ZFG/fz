@@ -1,0 +1,20 @@
+# Copy to release/scopes/<version>.yaml and fill before release_gate.
+version: "product-YYYYMMDD"
+grbl_git_sha: ""
+fz_git_sha: ""
+features:
+  paper_path: true
+  bluetooth: true
+  wifi_web: true
+  ota: false
+  cloud_qwen: false
+machines:
+  - custom_3axis_hr4988
+  - test_drive
+blockers_open: []
+waivers: []
+# waivers example:
+# - id: D11-seg-log-noise
+#   reason: "info spam only"
+#   owner: "name"
+#   expires: "2026-08-01"
