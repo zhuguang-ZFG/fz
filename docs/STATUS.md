@@ -27,3 +27,7 @@ $env:GRBL_ROOT='D:\Users\Grbl_Esp32'; python scripts/full_release_smoke.py --wit
 
 - Host sim ≠ product binary.
 - G3b paper/BT requires operator evidence; gate fails closed if missing when in scope.
+
+## Residual gaps → solutions
+
+See **[RESIDUAL_GAPS_SOLUTIONS.md](./RESIDUAL_GAPS_SOLUTIONS.md)** (community options for G3b HIL, real OTA, QEMU scope, A2A registry slash bug).
