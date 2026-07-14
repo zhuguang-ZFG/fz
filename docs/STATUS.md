@@ -8,6 +8,8 @@ Last updated: 2026-07-14
 | R1 | `release_gate` G0/G1/G5 | **done** | `scripts/release_gate.py` |
 | R2 | hardware_sim plant/oracle | **done** | `hardware_sim/run_hw_sim.py` |
 | R3 | G3a serial + G3 evidence YAML | **done** | `hil/serial_smoke.py`, `g3_evidence*` |
+| R3+ | G3b paper M30 serial helper | **done** | `hil/paper_m30_serial.py` (+ merge patches) |
+| R5+ | USB dual-flash G4 helper | **done** | `hil/dual_flash_usb.py` |
 | R4 | G2 QWEN contracts | **done** | `run_g2_qwen_contracts.py` (+ QWEN tests) |
 | R5 | G4 OTA evidence + smoke entry | **done** | `g4_ota*`, `full_release_smoke.py` |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
