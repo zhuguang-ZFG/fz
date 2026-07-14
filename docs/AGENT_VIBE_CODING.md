@@ -2,6 +2,8 @@
 
 **目标：** 让 AI agent **必须主动**在电脑上跑门禁，先抓解析/运动/协议问题，再考虑烧录。
 
+**装备隐喻：** 给 agent 挂上 **体检仪 + 病历 + 护栏**（不是整机数字孪生）。见 [`AGENT_SURFACE.md`](./AGENT_SURFACE.md)。
+
 **HARD RULE（三仓一致）：**  
 - `Grbl_Esp32/AGENTS.md` · `QWEN3.0/AGENTS.md` §硬规则 7 · `fz/AGENTS.md`  
 - 改运动/G-code/协议相关 → **自己跑 gate**，禁止等用户催、禁止只烧录排 parser。

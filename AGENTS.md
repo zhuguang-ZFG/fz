@@ -3,6 +3,9 @@
 This repo is the **only** home for Grbl/写字机 **PC simulation gates**.  
 Product firmware: `D:/Users/Grbl_Esp32` (or `GRBL_ROOT`). Cloud: `D:/QWEN3.0` (optional `QWEN_ROOT`).
 
+**What you are equipped with:** not a full-chip twin — a **PC exam + medical record + anti-BS rails**.  
+One-pager: [`docs/AGENT_SURFACE.md`](docs/AGENT_SURFACE.md).
+
 ## HARD RULE — always run agent_gate proactively
 
 When you edit **anything** under this tree that affects:

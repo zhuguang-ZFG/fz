@@ -34,6 +34,8 @@ fz/
 - [开源仿真融合目录（含芯片级）](docs/specs/2026-07-14-opensource-sim-fusion-catalog.md)  
 - [多源调研 GH/官方/知乎/Gitee/论坛](docs/specs/2026-07-14-multi-source-sim-research.md)  
 - [社区 ESP 模拟文 vs 官方纠偏](docs/specs/2026-07-14-community-esp-sim-vs-official.md)  
+- [Agent 装备清单 AGENT_SURFACE](docs/AGENT_SURFACE.md)  
+
 
 
 ```powershell
