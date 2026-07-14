@@ -31,7 +31,8 @@ fz/
 - [硬件仿真优化](docs/specs/2026-07-14-hardware-sim-optimization-design.md)  
 - [软件全链路 SIL](docs/specs/2026-07-14-software-fullchain-sim-design.md)  
 - [A2A 工作流](docs/specs/2026-07-14-a2a-sim-release-workflow-design.md)  
-- [开源仿真融合目录（含芯片级）](docs/specs/2026-07-14-opensource-sim-fusion-catalog.md) 
+- [开源仿真融合目录（含芯片级）](docs/specs/2026-07-14-opensource-sim-fusion-catalog.md)  
+- [多源调研 GH/官方/知乎/Gitee/论坛](docs/specs/2026-07-14-multi-source-sim-research.md) 
 
 ```powershell
 # Windows 全主机 SIL（grblHAL_sim 协议+步进植物+单测；非芯片/非产品纸路）

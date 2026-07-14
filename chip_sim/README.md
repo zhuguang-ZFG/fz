@@ -50,6 +50,10 @@ python chip_sim/run_qemu_smoke.py
 
 **Honesty:** Arduino Grbl full stack may panic/hang; Wi‑Fi/BT incomplete; never mark G3b/OTA from this green.
 
+**Community defaults:** prefer `--flash-mode dio` (default) for QEMU merge — guest often logs `mode:DIO`; see [xtensa-qemetsu](https://github.com/deomorxsy/xtensa-qemetsu). Product `platformio.ini` may use QIO on real silicon — different world.
+
+**Multi-source notes:** [multi-source-sim-research](../docs/specs/2026-07-14-multi-source-sim-research.md).
+
 ## Install sketches (operator)
 
 ### Espressif QEMU (Windows x86_64)

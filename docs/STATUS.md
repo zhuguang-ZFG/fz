@@ -16,6 +16,7 @@ Last updated: 2026-07-14
 | R7 | Windows full host SIL entry | **done** | `scripts/win_full_sim.py` (+ expanded protocol cases) |
 | R8 | Open-source sim fusion + chip probe | **done** | fusion catalog + `chip_sim/probe_chip_tools.py` |
 | R9 | QEMU flash image + smoke helpers | **done** | `build_flash_image` / `run_qemu_smoke` / install ps1 |
+| R10 | Multi-source sim research (GH/官方/中文/论坛) | **done** | `docs/specs/2026-07-14-multi-source-sim-research.md` |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 

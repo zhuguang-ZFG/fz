@@ -138,8 +138,12 @@
 - grblHAL Simulator: https://github.com/grblHAL/Simulator  
 - Espressif QEMU IDF: https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/tools/qemu.html  
 - espressif/qemu: https://github.com/espressif/qemu  
+- WiFi 不在 QEMU：https://github.com/espressif/esp-idf/issues/15087  
+- PIO+QEMU 社区 POC：https://github.com/deomorxsy/xtensa-qemetsu  
+- OpenEth 上网：https://productionesp32.com/posts/internet-in-qemu/  
 - Wokwi CI: https://docs.wokwi.com/wokwi-ci/getting-started  
 - wokwi-ci-action: https://github.com/wokwi/wokwi-ci-action  
 - Renode: https://renode.io/  
 - Golioth HIL: https://blog.golioth.io/golioth-hil-testing-part1/  
+- **多源调研长文：** [2026-07-14-multi-source-sim-research.md](./2026-07-14-multi-source-sim-research.md)  
 - 本仓 residual: `docs/RESIDUAL_GAPS_SOLUTIONS.md`

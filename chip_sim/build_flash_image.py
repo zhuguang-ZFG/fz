@@ -44,19 +44,38 @@ SIZE_MAP = {
 }
 
 
-def find_bootloader(pio_packages: Optional[Path] = None) -> Optional[Path]:
-    """Prefer qio_80m to match Grbl platformio.ini board_build.flash_mode/f_flash."""
+def find_bootloader(
+    pio_packages: Optional[Path] = None,
+    *,
+    flash_mode: str = "dio",
+) -> Optional[Path]:
+    """
+    Pick Arduino-ESP32 SDK bootloader.
+
+    Default **dio** for QEMU: guest log often shows mode:DIO; community PIO+QEMU
+    (xtensa-qemetsu) uses --flash_mode dio in merge_bin.
+    Use flash_mode=qio to match Grbl platformio.ini board_build.flash_mode=qio.
+    """
     roots: List[Path] = []
     if pio_packages:
         roots.append(pio_packages)
     home = Path(os.environ.get("USERPROFILE", os.environ.get("HOME", "")))
     roots.append(home / ".platformio" / "packages")
-    names = (
-        "bootloader_qio_80m.bin",
-        "bootloader_qio_40m.bin",
-        "bootloader_dio_80m.bin",
-        "bootloader_dio_40m.bin",
-    )
+    mode = (flash_mode or "dio").lower()
+    if mode == "qio":
+        names = (
+            "bootloader_qio_80m.bin",
+            "bootloader_qio_40m.bin",
+            "bootloader_dio_80m.bin",
+            "bootloader_dio_40m.bin",
+        )
+    else:
+        names = (
+            "bootloader_dio_80m.bin",
+            "bootloader_dio_40m.bin",
+            "bootloader_qio_80m.bin",
+            "bootloader_qio_40m.bin",
+        )
     for root in roots:
         if not root.is_dir():
             continue
@@ -170,11 +189,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="default results/qemu/flash_image_4mb.bin",
     )
     ap.add_argument("--prefer-esptool", action="store_true")
+    ap.add_argument(
+        "--flash-mode",
+        default="dio",
+        choices=("dio", "qio"),
+        help="bootloader variant preference (default dio for QEMU)",
+    )
     args = ap.parse_args(argv)
 
     grbl = args.grbl_root
     arts = find_build_artifacts(grbl) if grbl.is_dir() else {}
-    boot = args.bootloader or find_bootloader()
+    boot = args.bootloader or find_bootloader(flash_mode=args.flash_mode)
     part = args.partitions or arts.get("partitions")
     firm = args.firmware or arts.get("firmware")
 
