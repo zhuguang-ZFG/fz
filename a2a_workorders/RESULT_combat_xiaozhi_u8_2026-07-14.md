@@ -18,14 +18,27 @@
 | Host `g++` U8 unit tests (`test_u8_protocol_logic` / OTA / MQTT hex) | **未跑** — 本机 **无 g++/MinGW** |
 | `idf.py build` (target esp32s3 per GH `firmware-u8-build`) | **未完成** — 见下 |
 
-### 为何 idf build 没跑通
+### 为何 idf build 没跑通 / 修复中
 
 - `IDF_PATH` 空；`export.sh` 指向 **idf6.0 + py3.13 venv** 不存在。
 - `idf-env.json` 登记路径 `C:\Users\zhugu\Desktop\xue\esp-idf-v5.5.4*` **磁盘上不存在**。
-- 本机仅有 `~/.espressif` 工具链碎片 + `idf5.5_py3.12_env`，**完整可 export 的 IDF 树不可用**。
+- 浅克隆 `esp-idf-v5.5.2` 子模块半残；`install.ps1` 在 **Git Bash/MSYS 下被拒**。
+- `eim list` 一度显示 v6.0.1 后变为 **No versions found**（eim 元数据与磁盘不一致）。
 - CI 上 U8 构建定义：`espressif/esp-idf-ci-action@v1` + **v5.5.2** + `path: firmware/u8-xiaozhi` + **target: esp32s3**。
 
-**结论：** 小智固件 **静态/契约 Python 侧可验且绿**；**完整 ESP-IDF 编译需修好本机 IDF 安装或依赖 GitHub `firmware-u8-build` job**。
+**本机修复脚本（Windows PowerShell，非 Git Bash）：**
+
+```powershell
+cd D:\QWEN3.0\esp32S_XYZ
+# 安装 IDF v5.5.2 (esp32s3) + 编译 U8
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup_idf_and_build_u8.ps1
+# 仅编译（装好后）
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup_idf_and_build_u8.ps1 -BuildOnly
+```
+
+或 `make setup-idf-u8`。后台已触发 `eim install v5.5.2 --target esp32s3`（长任务，看 `D:\zhugu-home\.espressif\eim-install-v5.5.2-esp32s3.log`）。
+
+**结论：** 小智固件 **静态/契约 Python 侧可验且绿**；**完整 ESP-IDF 编译依赖本机 eim 装好 v5.5.2 或 GH `firmware-u8-build`**。
 
 ---
 
