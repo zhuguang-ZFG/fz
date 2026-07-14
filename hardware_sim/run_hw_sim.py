@@ -33,6 +33,7 @@ from step_oracle import (  # noqa: E402
 )
 from plant import Plant  # noqa: E402
 from case_runner import run_all_json_cases  # noqa: E402
+from block_oracle import assert_block_activity  # noqa: E402
 from sim_common.find_sim import find_sim, VENDOR_SIM  # noqa: E402
 from sim_common.grbl_tcp import (  # noqa: E402
     GrblTcp,
@@ -517,6 +518,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 name="block_log_nonempty",
                 passed=block_ok,
                 detail="" if block_ok else f"missing/empty {block_log}",
+            )
+        )
+        # Community -b block log: planner surface (grblHAL Simulator README)
+        bok, bdet, binfo = assert_block_activity(block_log, min_lines=0)
+        results.append(
+            CaseResult(
+                name="block_oracle_activity",
+                passed=bok and block_ok,
+                detail="" if bok else bdet,
+                responses=[str(binfo)],
             )
         )
         samples = parse_step_log(step_log)

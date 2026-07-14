@@ -1,0 +1,19 @@
+{
+  "id": "json_check_mode_no_travel",
+  "notes": "Community dry-run: $C on — motion words should not accumulate real travel like normal mode",
+  "soft_reset": true,
+  "setup": ["G21", "G90", "G94"],
+  "steps": [
+    { "send": "$C", "expect": "ok", "wait": 1.5 },
+    {
+      "send": "G1 X10 F1000",
+      "expect": "ok",
+      "wait": 5.0,
+      "step_window": true,
+      "expect_travel_mm": [0, 0, 0],
+      "eps_mm": 1.5,
+      "wait_idle": true
+    },
+    { "send": "$C", "expect": "ok", "wait": 1.5 }
+  ]
+}

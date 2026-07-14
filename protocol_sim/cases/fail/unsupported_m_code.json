@@ -1,0 +1,12 @@
+{
+  "name": "unsupported_m_code",
+  "setup": ["G21"],
+  "steps": [
+    {
+      "send": "M999",
+      "expect": "error",
+      "codes": ["20", "2", "3"],
+      "wait": 2.0
+    }
+  ]
+}

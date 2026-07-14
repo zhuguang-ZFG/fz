@@ -220,23 +220,49 @@ def pick_profile(
     return "standard"
 
 
+def _failed_case_names(report_path: Path, limit: int = 8) -> List[str]:
+    if not report_path.is_file():
+        return []
+    try:
+        data = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    names: List[str] = []
+    # protocol_sim: list of CaseResult dicts
+    if isinstance(data, list):
+        for c in data:
+            if isinstance(c, dict) and c.get("passed") is False:
+                names.append(str(c.get("name") or "?"))
+    elif isinstance(data, dict):
+        for c in data.get("cases") or []:
+            if isinstance(c, dict) and c.get("passed") is False:
+                names.append(str(c.get("name") or "?"))
+    return names[:limit]
+
+
 def agent_hints_for_failures(layers: List[Layer]) -> List[str]:
     hints: List[str] = []
     for L in layers:
         if L.status != "fail":
             continue
         if L.id == "protocol":
+            failed = _failed_case_names(FZ_ROOT / "protocol_sim" / "results" / "last_report.json")
             hints.append(
                 "Read protocol_sim/results/last_report.json; fix G-code/error expectation "
                 "or product parser if intentionally diverging (document divergence)."
             )
+            if failed:
+                hints.append("Failed protocol cases: " + ", ".join(failed))
             hints.append(
                 "Re-run: python protocol_sim/run_regression.py --start-sim"
             )
         elif L.id == "hardware":
+            failed = _failed_case_names(FZ_ROOT / "hardware_sim" / "results" / "last_hw_report.json")
             hints.append(
                 "Read hardware_sim/results/last_hw_report.json; check MPos/plant/step logs."
             )
+            if failed:
+                hints.append("Failed hardware cases: " + ", ".join(failed))
             hints.append(
                 "Re-run: python hardware_sim/run_hw_sim.py --start-sim"
             )

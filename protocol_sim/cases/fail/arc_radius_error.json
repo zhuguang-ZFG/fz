@@ -1,0 +1,13 @@
+{
+  "name": "arc_radius_error_community_e33",
+  "notes": "Community CAM often hits error:33 (arc radius) — Carbide/OpenBuilds threads",
+  "setup": ["G21", "G90", "G17", "G0 X0 Y0"],
+  "steps": [
+    {
+      "send": "G2 X10 Y0 R1 F100",
+      "expect": "error",
+      "codes": ["33", "34", "35", "2", "22"],
+      "wait": 2.0
+    }
+  ]
+}

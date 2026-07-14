@@ -19,7 +19,9 @@ Defaults to `vendor/grblhal_sim/bin/grblHAL_sim.exe` if `GRBLHAL_SIM` unset.
 - `cases/pass/*.nc` — expect ok  
 - `cases/fail/*.json` — expect error codes  
 
-Expanded fail set (Windows host SIL): bad number, modal conflict, undefined feed, unsupported G-code, missing axis word, arc without IJK/R, invalid G999. 
+Expanded fail set (community CAM / Grbl error surface): bad number, modal conflict, undefined feed, unsupported G/M, arc missing offset (e35), arc radius (e33), G1 no target.
+
+Pass set: smoke, arcs, rapid box, dwell, N-words/spindle, G20/G21, $C dry-run, coolant words. 
 
 ## Design
 

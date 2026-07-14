@@ -1,0 +1,14 @@
+{
+  "id": "json_spindle_coolant_ok",
+  "soft_reset": true,
+  "setup": ["G21", "G90"],
+  "steps": [
+    { "send": "M5", "expect": "ok" },
+    { "send": "M9", "expect": "ok" },
+    { "send": "S500", "expect": "ok" },
+    { "send": "M3", "expect": "ok" },
+    { "send": "M8", "expect": "ok" },
+    { "send": "M5", "expect": "ok" },
+    { "send": "M9", "expect": "ok" }
+  ]
+}

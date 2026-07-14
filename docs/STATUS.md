@@ -20,6 +20,7 @@ Last updated: 2026-07-14
 | R11 | Host SIL deep-opt (shared TCP, ports, cases) | **done** | `sim_common/` + protocol/hw refactor |
 | R12 | Agent vibe gate (proactive PC test) | **done** | `scripts/agent_gate.py` + `docs/AGENT_VIBE_CODING.md` |
 | R13 | JSON hw cases + per-move StepOracle + stdin inject | **done** | `case_runner.py` + `cases/` |
+| R14 | Community PC sim case pack + block oracle | **done** | protocol e33/CAM words; block_oracle |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 
