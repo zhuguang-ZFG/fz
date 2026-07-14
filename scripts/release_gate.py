@@ -373,7 +373,8 @@ def run_g0_build(
     return result
 
 
-def run_g2_placeholder(bundle: Path, scope: Dict[str, Any]) -> Dict[str, Any]:
+def run_g2_contracts(bundle: Path, scope: Dict[str, Any]) -> Dict[str, Any]:
+    """Run QWEN motion contract pytest via run_g2_qwen_contracts.py when in scope."""
     features = scope.get("features") or {}
     if not features.get("cloud_qwen"):
         result = {
@@ -381,12 +382,53 @@ def run_g2_placeholder(bundle: Path, scope: Dict[str, Any]) -> Dict[str, Any]:
             "status": "skipped_not_in_scope",
             "note": "features.cloud_qwen is false",
         }
-    else:
+        _write_json(bundle / "g2_contracts.json", result)
+        return result
+
+    qwen = os.environ.get("QWEN_ROOT", "").strip()
+    if not qwen or not Path(qwen).is_dir():
         result = {
             "layer": "G2",
             "status": "unknown",
-            "note": "Cloud contract suite not wired yet — treat as required if shipping cloud",
+            "note": "cloud_qwen in scope but QWEN_ROOT not set or missing",
         }
+        _write_json(bundle / "g2_contracts.json", result)
+        return result
+
+    runner = FZ_ROOT / "scripts" / "run_g2_qwen_contracts.py"
+    out_json = bundle / "g2_contracts_raw.json"
+    t0 = time.time()
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(runner),
+            "--qwen-root",
+            qwen,
+            "--out",
+            str(out_json),
+        ],
+        cwd=str(FZ_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=360,
+    )
+    raw: Dict[str, Any] = {}
+    if out_json.is_file():
+        try:
+            raw = json.loads(out_json.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            raw = {}
+    status = "pass" if proc.returncode == 0 else "fail"
+    result = {
+        "layer": "G2",
+        "status": status,
+        "exit_code": proc.returncode,
+        "duration_s": round(time.time() - t0, 2),
+        "qwen_root": qwen,
+        "detail": raw,
+        "stdout_tail": (proc.stdout or "")[-1500:],
+        "stderr_tail": (proc.stderr or "")[-800:],
+    }
     _write_json(bundle / "g2_contracts.json", result)
     return result
 
@@ -703,7 +745,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if "G2" in only:
         print("=== G2 contracts ===")
-        layers["G2"] = run_g2_placeholder(bundle, scope)
+        layers["G2"] = run_g2_contracts(bundle, scope)
 
     if "G3" in only:
         print("=== G3 HIL/evidence ===")

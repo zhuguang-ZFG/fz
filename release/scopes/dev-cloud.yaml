@@ -1,0 +1,12 @@
+# Dev scope with cloud contracts enabled (needs QWEN_ROOT).
+version: "dev-cloud"
+features:
+  paper_path: false
+  bluetooth: false
+  wifi_web: false
+  ota: false
+  cloud_qwen: true
+machines:
+  - test_drive
+blockers_open: []
+waivers: []

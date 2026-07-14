@@ -55,6 +55,11 @@ python scripts/release_gate.py --scope release/scopes/dev-quick.yaml --skip-g0
 # 固件编译 G0（需 GRBL_ROOT + pio）：
 # $env:GRBL_ROOT='D:\Users\Grbl_Esp32'
 # python scripts/release_gate.py --scope release/scopes/dev-quick.yaml --only G0 --g0-mode test_drive
+# 云契约 G2（需 QWEN_ROOT + .venv310）：
+# $env:QWEN_ROOT='D:\QWEN3.0'
+# python scripts/release_gate.py --scope release/scopes/dev-cloud.yaml --skip-g0 --only G2,G5
+# 真机 G3a 串口冒烟（可选）：
+# python hil/serial_smoke.py --port COM7
 ```
 
 Linux/macOS：请从 [grblHAL Simulator](https://github.com/grblHAL/Simulator) 自行构建，或用 Web Builder；将可执行文件路径写入环境变量。
