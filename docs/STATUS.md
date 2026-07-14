@@ -40,6 +40,7 @@ Last updated: 2026-07-14
 | R34 | sim log triage one-page | **done** | `scripts/sim_log_triage.py` → `results/triage_last.md` |
 | R35 | gate red auto fail-slice print | **done** | `agent_gate` `_finish` on overall≠0 |
 | R36 | HIL serial log archive + index | **done** | `hil/archive_serial_log.py` + hil_to_gate --port |
+| R37 | PC-only fail pack expand (no HIL) | **done** | +6 hard fail + soft CAM + goldens |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 

@@ -1,0 +1,13 @@
+{
+  "name": "jog_malformed_command",
+  "notes": "Malformed $J= line should error (not silently run as G1)",
+  "setup": ["G21", "G90"],
+  "steps": [
+    {
+      "send": "$J=G91 X",
+      "expect": "error",
+      "codes": ["1", "2", "3", "8", "9", "15", "16", "20", "22"],
+      "wait": 2.0
+    }
+  ]
+}

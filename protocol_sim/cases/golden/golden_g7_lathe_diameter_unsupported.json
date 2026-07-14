@@ -1,0 +1,21 @@
+{
+  "name": "golden_g7_lathe_diameter_unsupported",
+  "notes": "R23 recorded from protocol_sim/cases/fail/g7_lathe_diameter_unsupported.json",
+  "setup": [
+    "G21",
+    "G90"
+  ],
+  "steps": [
+    {
+      "send": "G7",
+      "expect": "error",
+      "codes": [
+        "20",
+        "3",
+        "2",
+        "24"
+      ],
+      "wait": 2.0
+    }
+  ]
+}

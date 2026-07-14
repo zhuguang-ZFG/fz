@@ -43,9 +43,11 @@ python scripts/soft_allowlist.py
 python protocol_sim/validate_cases.py
 ```
 
-Fail set (community CAM): bad number, modal, undefined feed, unsupported G/M, arc e35/e34, G1 no target.  
+Fail set (community CAM + R37): bad number, modal, undefined feed, unsupported G/M, arc e35/e34, G1 no target, **repeated axis, bare number, G7 lathe, G43 H, bad `$J=`, N+incomplete axis**.  
 Pass: smoke, arcs, rapid box, dwell, N-words, G20/G21, $C dry-run, coolant.  
-`--include-repo-tests`: soft-stream `GRBL_ROOT/.../src/tests/{parsetest,spindle_testing,user_io}.nc`. 
+Soft: comment styles, spindle subset, **CAM `%` / spacing** (never hard-fail).  
+`--include-repo-tests`: soft-stream `GRBL_ROOT/.../src/tests/{parsetest,spindle_testing,user_io}.nc`.  
+
 
 ## Design
 

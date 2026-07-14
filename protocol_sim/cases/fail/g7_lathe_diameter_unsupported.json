@@ -1,0 +1,13 @@
+{
+  "name": "g7_lathe_diameter_unsupported",
+  "notes": "R37: G7 lathe diameter mode — rejected on typical grblHAL mill sim",
+  "setup": ["G21", "G90"],
+  "steps": [
+    {
+      "send": "G7",
+      "expect": "error",
+      "codes": ["20", "3", "2", "24"],
+      "wait": 2.0
+    }
+  ]
+}

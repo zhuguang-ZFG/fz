@@ -1,0 +1,13 @@
+{
+  "name": "repeated_axis_word_X",
+  "notes": "Community/grbl: same axis letter twice on one block → error (often 16)",
+  "setup": ["G21", "G90"],
+  "steps": [
+    {
+      "send": "G0 X1 X2",
+      "expect": "error",
+      "codes": ["16", "25", "2", "3", "20", "24"],
+      "wait": 2.0
+    }
+  ]
+}

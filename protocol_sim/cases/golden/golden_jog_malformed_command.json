@@ -1,0 +1,26 @@
+{
+  "name": "golden_jog_malformed_command",
+  "notes": "R23 recorded from protocol_sim/cases/fail/jog_cancel_or_bad.json",
+  "setup": [
+    "G21",
+    "G90"
+  ],
+  "steps": [
+    {
+      "send": "$J=G91 X",
+      "expect": "error",
+      "codes": [
+        "1",
+        "2",
+        "3",
+        "8",
+        "9",
+        "15",
+        "16",
+        "20",
+        "22"
+      ],
+      "wait": 2.0
+    }
+  ]
+}

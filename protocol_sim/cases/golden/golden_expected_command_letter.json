@@ -1,0 +1,20 @@
+{
+  "name": "golden_expected_command_letter",
+  "notes": "R23 recorded from protocol_sim/cases/fail/expected_command_letter.json",
+  "setup": [
+    "G21"
+  ],
+  "steps": [
+    {
+      "send": "123",
+      "expect": "error",
+      "codes": [
+        "1",
+        "2",
+        "3",
+        "20"
+      ],
+      "wait": 2.0
+    }
+  ]
+}

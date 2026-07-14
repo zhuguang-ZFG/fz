@@ -1,0 +1,13 @@
+{
+  "name": "expected_command_letter",
+  "notes": "Bare number / no letter — grbl error 1 class",
+  "setup": ["G21"],
+  "steps": [
+    {
+      "send": "123",
+      "expect": "error",
+      "codes": ["1", "2", "3", "20"],
+      "wait": 2.0
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "golden_g43_tool_length_often_unsupported",
+  "notes": "R23 recorded from protocol_sim/cases/fail/g43_tool_offset_unsupported.json",
+  "setup": [
+    "G21",
+    "G90"
+  ],
+  "steps": [
+    {
+      "send": "G43 H1",
+      "expect": "error",
+      "codes": [
+        "20",
+        "3",
+        "2",
+        "22",
+        "24"
+      ],
+      "wait": 2.0
+    }
+  ]
+}
