@@ -57,9 +57,13 @@ def wait_port(
     host: str = "127.0.0.1",
     timeout: float = 8.0,
 ) -> bool:
+    """Poll until TCP accept works. Brief connect then close (server must multi-accept)."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         if port_listening(port, host):
-            return True
-        time.sleep(0.1)
+            # second probe after tiny gap — reduces false ready
+            time.sleep(0.15)
+            if port_listening(port, host):
+                return True
+        time.sleep(0.12)
     return False

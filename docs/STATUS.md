@@ -18,6 +18,7 @@ Last updated: 2026-07-14
 | R9 | QEMU flash image + smoke helpers | **done** | `build_flash_image` / `run_qemu_smoke` / install ps1 |
 | R10 | Multi-source sim research (GH/官方/中文/论坛) | **done** | `docs/specs/2026-07-14-multi-source-sim-research.md` |
 | R11 | Host SIL deep-opt (shared TCP, ports, cases) | **done** | `sim_common/` + protocol/hw refactor |
+| R12 | Agent vibe gate (proactive PC test) | **done** | `scripts/agent_gate.py` + `docs/AGENT_VIBE_CODING.md` |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 
@@ -25,6 +26,8 @@ Last updated: 2026-07-14
 
 ```powershell
 cd D:\Users\zhugu\fz
+# Agent 主动门禁（vibe coding，默认 standard/auto）
+$env:GRBL_ROOT='D:\Users\Grbl_Esp32'; python scripts/agent_gate.py
 # 全 Win 主机仿真（协议+硬件台架+单测+诚实缺口报告；非芯片/非纸路）
 python scripts/win_full_sim.py
 # 可选：探测本机 Espressif QEMU / Wokwi / Renode（不装也能绿）

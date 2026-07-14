@@ -34,7 +34,7 @@ from sim_common.grbl_tcp import (  # noqa: E402
     classify_responses,
     DEFAULT_TIMEOUT,
 )
-from sim_common.ports import find_free_port, wait_port  # noqa: E402
+from sim_common.ports import find_free_port  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent
@@ -296,26 +296,44 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 2
         # Avoid bind clash if previous sim left port open
         args.port = find_free_port(args.port, host=args.host)
+        RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+        sim_err = RESULTS_DIR / "sim_stderr_last.log"
         # -n: no comment prefixes; -t 0: as fast as possible (official sim flag)
+        err_f = open(sim_err, "w", encoding="utf-8", errors="replace")
         sim_proc = subprocess.Popen(
             [str(sim), "-n", "-t", "0", "-p", str(args.port)],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=err_f,
             cwd=str(sim.parent),
         )
-        if not wait_port(args.port, host=args.host, timeout=8.0):
-            print(f"ERROR: sim did not open {args.host}:{args.port}", file=sys.stderr)
-            sim_proc.terminate()
+        # Do NOT TCP-probe before the real client: grblHAL_sim is effectively
+        # single-session; a wait_port connect can race/steal the accept.
+        time.sleep(0.9)
+        if sim_proc.poll() is not None:
+            print(
+                f"ERROR: sim exited early code={sim_proc.returncode} log={sim_err}",
+                file=sys.stderr,
+            )
+            try:
+                err_f.close()
+            except OSError:
+                pass
             return 2
-        time.sleep(0.25)
 
     client = GrblTcpClient(args.host, args.port, timeout=args.timeout, boot_wait=BOOT_WAIT)
     try:
-        try:
-            client.connect()
-        except OSError as exc:
+        last_exc: Optional[OSError] = None
+        for attempt in range(8):
+            try:
+                client.connect()
+                last_exc = None
+                break
+            except OSError as exc:
+                last_exc = exc
+                time.sleep(0.35 + 0.1 * attempt)
+        if last_exc is not None:
             print(
-                f"ERROR: cannot connect to {args.host}:{args.port} ({exc}).\n"
+                f"ERROR: cannot connect to {args.host}:{args.port} ({last_exc}).\n"
                 f"Start sim first, e.g. grblHAL_sim -p {args.port}\n"
                 f"Web Builder: https://svn.io-engineering.com:8443/?driver=Simulator",
                 file=sys.stderr,

@@ -35,7 +35,13 @@ fz/
 - [多源调研 GH/官方/知乎/Gitee/论坛](docs/specs/2026-07-14-multi-source-sim-research.md) 
 
 ```powershell
-# Windows 全主机 SIL（grblHAL_sim 协议+步进植物+单测；非芯片/非产品纸路）
+# ★ Agent vibe coding（首选：改完代码主动跑，少烧录）
+$env:GRBL_ROOT='D:\Users\Grbl_Esp32'
+python scripts/agent_gate.py
+# 报告: results/agent_gate_last.json  → failures + agent_hints
+# 详见 docs/AGENT_VIBE_CODING.md
+
+# Windows 全主机 SIL（更全的 L0–L5 报告）
 python scripts/win_full_sim.py
 # 开源芯片仿真器探测（QEMU/Wokwi/Renode；可选，默认不硬失败）
 python chip_sim/probe_chip_tools.py
@@ -48,7 +54,7 @@ python scripts/hil_to_gate.py --skip-smoke
 ```
 
 术语：主路径是 **SIL 主机仿真 + 上线真硅清单**，不是芯片全真孪生。  
-`win_full_sim` 报告字段 `claims_forbidden` 禁止把绿结果说成产品纸路/BT/OTA/QEMU 已验证。
+`agent_gate` / `win_full_sim` 的 `claims_forbidden` 禁止把绿结果说成产品纸路/BT/OTA/QEMU 已验证。
 
 ---
 

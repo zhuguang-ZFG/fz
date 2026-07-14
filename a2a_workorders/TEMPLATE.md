@@ -22,21 +22,23 @@ owns: <逗号分隔的相对路径，禁止越权改其它文件>
 
 ```gates
 # 必须可机跑；Kimi 亲自重跑，不采信 RESULT 口述
+# Agent vibe 默认：PC 主机 SIL（先于烧录）
 cd D:/Users/zhugu/fz
-python -m unittest discover -s hil -p "test_*.py" -v
-python scripts/full_release_smoke.py
+python scripts/agent_gate.py --profile standard
 # expect: exit 0
-# 若本工单只动 protocol：python protocol_sim/run_regression.py --start-sim
-# 可选：pytest -q   （装了 pytest 时；关键词满足部分 bridge 校验）
+# report: results/agent_gate_last.json
+# 若只动协议：python scripts/agent_gate.py --profile quick
+# 发版前：python scripts/full_release_smoke.py
+# 可选：pytest -q
 ```
 
 ## 验收（人类可读；与 gates 命令对齐）
 
 ```text
-# 命令与期望 exit code（与 ```gates 一致）
-python -m unittest discover -s hil -p "test_*.py" -v
-python scripts/full_release_smoke.py
+cd D:/Users/zhugu/fz
+python scripts/agent_gate.py --profile standard
 # expect: 0
+# on fail: read results/agent_gate_last.json agent_hints
 ```
 
 ## 禁止

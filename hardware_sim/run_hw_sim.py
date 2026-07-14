@@ -39,7 +39,7 @@ from sim_common.grbl_tcp import (  # noqa: E402
     parse_mpos,
     wait_idle,
 )
-from sim_common.ports import find_free_port, wait_port  # noqa: E402
+from sim_common.ports import find_free_port  # noqa: E402
 
 
 FZ_ROOT = Path(__file__).resolve().parent.parent
@@ -339,19 +339,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         sim_proc = subprocess.Popen(
             cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=str(sim.parent)
         )
-        if not wait_port(args.port, host=args.host, timeout=10.0):
-            print(f"ERROR: sim not listening on {args.port}", file=sys.stderr)
-            sim_proc.terminate()
+        # Avoid wait_port TCP probe — single-session sim; sleep + connect retries
+        time.sleep(1.0 if args.time_factor and args.time_factor > 0 else 0.8)
+        if sim_proc.poll() is not None:
+            print(f"ERROR: sim exited early code={sim_proc.returncode}", file=sys.stderr)
             return 2
-        time.sleep(0.2)
 
     client = GrblTcp(args.host, args.port)
     results: List[CaseResult] = []
     try:
-        try:
-            client.connect()
-        except OSError as exc:
-            print(f"ERROR: connect {args.host}:{args.port}: {exc}", file=sys.stderr)
+        last_exc: Optional[OSError] = None
+        for attempt in range(8):
+            try:
+                client.connect()
+                last_exc = None
+                break
+            except OSError as exc:
+                last_exc = exc
+                time.sleep(0.35 + 0.1 * attempt)
+        if last_exc is not None:
+            print(f"ERROR: connect {args.host}:{args.port}: {last_exc}", file=sys.stderr)
             return 2
 
         results.append(
