@@ -1,0 +1,21 @@
+# Runtime
+protocol_sim/results/*.json
+hardware_sim/results/*
+!hardware_sim/results/.gitkeep
+!protocol_sim/results/.gitkeep
+**/__pycache__/
+*.pyc
+.EEPROM*.DAT
+EEPROM.DAT
+*.log
+
+# Optional local rebuild trees (keep bin/)
+vendor/grblhal_sim/src/
+vendor/grblhal_sim/build/
+vendor/grblhal_sim/src_repo/
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

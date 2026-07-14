@@ -1,0 +1,16 @@
+{
+  "name": "modal_group_or_axis_word_conflict",
+  "setup": [
+    "G21",
+    "G90",
+    "F1000"
+  ],
+  "steps": [
+    {
+      "send": "G0 G1 X1",
+      "expect": "error",
+      "codes": ["21", "24"],
+      "wait": 2.0
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "name": "unsupported_or_invalid_gcode",
+  "setup": [
+    "G21",
+    "G90"
+  ],
+  "steps": [
+    {
+      "send": "G999",
+      "expect": "error",
+      "wait": 2.0
+    }
+  ]
+}

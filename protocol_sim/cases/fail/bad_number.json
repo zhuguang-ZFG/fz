@@ -1,0 +1,14 @@
+{
+  "name": "bad_number_format",
+  "setup": [
+    "G21"
+  ],
+  "steps": [
+    {
+      "send": "G0 X",
+      "expect": "error",
+      "code": "2",
+      "wait": 2.0
+    }
+  ]
+}
