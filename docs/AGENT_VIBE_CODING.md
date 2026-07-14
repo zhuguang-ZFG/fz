@@ -1,6 +1,10 @@
 # Agent vibe coding：PC 仿真优先（少烧录）
 
-**目标：** 让 AI agent **主动**在电脑上跑门禁，先抓解析/运动/协议问题，再考虑烧录。
+**目标：** 让 AI agent **必须主动**在电脑上跑门禁，先抓解析/运动/协议问题，再考虑烧录。
+
+**HARD RULE（三仓一致）：**  
+- `Grbl_Esp32/AGENTS.md` · `QWEN3.0/AGENTS.md` §硬规则 7 · `fz/AGENTS.md`  
+- 改运动/G-code/协议相关 → **自己跑 gate**，禁止等用户催、禁止只烧录排 parser。
 
 **入口（唯一推荐）：**
 

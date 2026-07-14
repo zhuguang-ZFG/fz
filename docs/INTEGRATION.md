@@ -17,18 +17,22 @@ G3 证据：复制 `release/g3_evidence.template.yaml` → 填写 →
 ## Grbl_Esp32
 
 - 删除或停用仓内 `tools/sim_regression`、`tools/grblhal_sim` 的继续开发；改为文档指向本仓。  
-- 日常协议门禁：
+- **Agent MUST**（`AGENTS.md` HARD RULE）：改 GCode/Protocol/运动相关后主动：
 
 ```powershell
 $env:FZ_ROOT = 'D:\Users\zhugu\fz'
-python $env:FZ_ROOT\protocol_sim\run_regression.py --start-sim
+$env:GRBL_ROOT = 'D:\Users\Grbl_Esp32'
+python $env:FZ_ROOT\scripts\agent_gate.py
+# 或: D:\Users\Grbl_Esp32\tools\agent_gate.ps1
 ```
 
-- 可选：`$env:GRBL_ROOT = 'D:\Users\Grbl_Esp32'` 以启用 `--include-repo-tests`（若配置）。
+- 仅协议子集：`python $env:FZ_ROOT\protocol_sim\run_regression.py --start-sim`
 
 ## QWEN3.0
 
 - FakeDevice / motion 契约仍可在 QWEN 仓测试树。  
+- **Agent MUST**（`AGENTS.md` 硬规则 7）：改 U1-Grbl / G 码下发 / 运动协议对齐路径时，**主动**调同一 `agent_gate`（`FZ_ROOT` + 可选 `GRBL_ROOT`）。  
+- 纯云/小程序/语音：本仓 pytest 即可，不强制 agent_gate。  
 - 跨仓 fullchain runner 读取 `FZ_ROOT` 启动 L1，再跑 L2。
 
 ## 推送本仓

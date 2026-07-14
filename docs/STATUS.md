@@ -31,6 +31,7 @@ Last updated: 2026-07-14
 | R22 | GitHub Actions host SIL | **done** | `.github/workflows/host_sil.yml` |
 | R23 | Golden recorder from last_report | **done** | `scripts/golden_record.py` |
 | R24 | Soft allowlist machine check | **done** | `soft/allowlist.yaml` + `soft_allowlist.py` |
+| R25 | MUST proactive agent_gate (三仓 AGENTS) | **done** | Grbl/QWEN/fz `AGENTS.md` hard rules |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 
