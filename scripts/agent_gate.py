@@ -639,6 +639,11 @@ PROFILES:
   standard  — protocol + hardware_sim (vibe coding default)
   deep      — + full_release_smoke
   firmware  — + pio test_drive G0 (slow)
+
+LOOP / HONESTY (EDA-inspired):
+  python scripts/agent_loop.py --profile standard
+  python scripts/release_honesty.py --require-agent-gate --allow-pending-hil
+  → results/release_honesty_last.json  (KiCad-like pre-fab checklist machine check)
 """
 
 

@@ -38,8 +38,10 @@ fz/
 # ★ Agent vibe coding（首选：改完代码主动跑，少烧录）
 $env:GRBL_ROOT='D:\Users\Grbl_Esp32'
 python scripts/agent_gate.py
-# 报告: results/agent_gate_last.json  → failures + agent_hints
-# 详见 docs/AGENT_VIBE_CODING.md
+python scripts/agent_loop.py --profile standard    # gate→失败重跑→再 gate
+python scripts/release_honesty.py --require-agent-gate --allow-pending-hil  # 发版诚实度
+# 报告: results/agent_gate_last.json / release_honesty_last.json
+# 详见 docs/AGENT_VIBE_CODING.md · docs/specs/2026-07-14-eda-inspired-release-honesty.md
 
 # Windows 全主机 SIL（更全的 L0–L5 报告）
 python scripts/win_full_sim.py

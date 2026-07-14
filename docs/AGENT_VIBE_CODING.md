@@ -71,6 +71,26 @@ python scripts/agent_gate.py --profile deep
 $env:GRBL_ROOT='D:\Users\Grbl_Esp32'; python scripts/agent_gate.py --profile firmware
 ```
 
+### 闭环加速（类「改网表 → 再跑 ERC」）
+
+```powershell
+# 一键：gate → 失败则 sim_rerun → 再 gate
+python scripts/agent_loop.py --profile standard
+python scripts/agent_loop.py --profile quick --honesty   # 末尾附发版诚实度（HIL 可 pending）
+```
+
+### 发版诚实度（类「出板前 DRC 汇总」，非下单）
+
+```powershell
+python scripts/release_honesty.py --require-agent-gate --allow-pending-hil
+# 真要签字（scope 含纸路/OTA 时必须证据）：
+python scripts/release_honesty.py --require-agent-gate `
+  --scope release/scopes/pre-release-min.yaml
+# 报告: results/release_honesty_last.json
+```
+
+对照说明：`docs/specs/2026-07-14-eda-inspired-release-honesty.md`（KiCad/立创分流启发）
+
 打印合同：
 
 ```powershell
