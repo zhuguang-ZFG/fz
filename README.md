@@ -45,8 +45,12 @@ $env:GRBLHAL_VALIDATOR = "$PWD\vendor\grblhal_sim\bin\grblHAL_validator.exe"
 
 # 协议回归（自动 -n -t 0 -p 7681）
 python protocol_sim/run_regression.py --start-sim
-# 或
-powershell -File protocol_sim/run_daily.ps1
+# 硬件台架（步进日志 + MPos 增量）
+python hardware_sim/run_hw_sim.py --start-sim
+# 发布门禁（dev scope：无纸路/BT，不要求 G3）
+python scripts/release_gate.py --scope release/scopes/dev-quick.yaml --skip-g0
+# 产品 scope 示例：缺 G3 证据应 exit 3
+python scripts/release_gate.py --scope release/release_scope.example.yaml --skip-g0
 ```
 
 Linux/macOS：请从 [grblHAL Simulator](https://github.com/grblHAL/Simulator) 自行构建，或用 Web Builder；将可执行文件路径写入环境变量。

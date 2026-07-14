@@ -1,0 +1,14 @@
+# Dev scope: protocol-only ship check (not a product release).
+version: "dev-quick"
+grbl_git_sha: ""
+fz_git_sha: ""
+features:
+  paper_path: false
+  bluetooth: false
+  wifi_web: false
+  ota: false
+  cloud_qwen: false
+machines:
+  - test_drive
+blockers_open: []
+waivers: []
