@@ -69,8 +69,8 @@ python -m unittest scripts.test_gate_integrity -v
 | profile | 内容 | 约时 |
 |---------|------|------|
 | `auto` | 看 git 变更启发式 | — |
-| `quick` | protocol + sim_common 单测 | ~40s |
-| `standard` | + hardware_sim（默认 vibe） | ~1–2min |
+| `quick` | protocol + sim_common 单测（R21：integrity/protocol **共用** 一个 sim） | ~40–90s |
+| `standard` | + hardware_sim（默认 vibe；hw 仍单独起 sim） | ~1–2min |
 | `deep` | + full_release_smoke | ~2–3min |
 | `firmware` | + pio `test_drive` G0 | 长 |
 
@@ -79,7 +79,11 @@ python scripts/agent_gate.py --profile quick
 python scripts/agent_gate.py --profile standard
 python scripts/agent_gate.py --profile deep
 $env:GRBL_ROOT='D:\Users\Grbl_Esp32'; python scripts/agent_gate.py --profile firmware
+# R21 调试：每层各自 --start-sim
+python scripts/agent_gate.py --profile quick --no-shared-sim
 ```
+
+CI（R22）：`.github/workflows/host_sil.yml` 在 push/PR 跑 `agent_gate --profile quick`（Windows + vendored sim）。
 
 ### 闭环加速（类「改网表 → 再跑 ERC」）
 

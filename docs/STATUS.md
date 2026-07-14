@@ -27,6 +27,8 @@ Last updated: 2026-07-14
 | R18 | Wokwi scaffold (Espressif third-party) | **done** | `chip_sim/wokwi/` + `run_wokwi_smoke.py` |
 | R19 | Golden replay + fault-inject must-red | **done** | `cases/golden` + `--integrity-inject` |
 | R20 | 社区 ESP 模拟文 vs 官方纠偏 | **done** | `docs/specs/2026-07-14-community-esp-sim-vs-official.md` |
+| R21 | Shared protocol sim session | **done** | `sim_common/sim_session.py` + agent_gate reuse |
+| R22 | GitHub Actions host SIL | **done** | `.github/workflows/host_sil.yml` |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 

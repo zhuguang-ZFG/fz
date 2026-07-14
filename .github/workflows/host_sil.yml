@@ -1,0 +1,50 @@
+# R22: host SIL on CI (no board). Windows runners use vendored grblHAL_sim.exe.
+name: host-sil
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  agent-gate-quick:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Preflight sim binary
+        shell: pwsh
+        run: |
+          $sim = "vendor/grblhal_sim/bin/grblHAL_sim.exe"
+          if (-not (Test-Path $sim)) {
+            Write-Error "missing $sim — vendor binary required for CI"
+            exit 2
+          }
+          Get-Item $sim | Format-List Name, Length
+
+      - name: agent_gate quick (shared sim + integrity + protocol)
+        shell: pwsh
+        run: |
+          python scripts/agent_gate.py --profile quick
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-gate-quick
+          path: |
+            results/agent_gate_last.json
+            results/sim_session.json
+            protocol_sim/results/last_report.json
+            protocol_sim/results/golden_last.json
+            protocol_sim/results/integrity_inject_last.json
+          if-no-files-found: warn

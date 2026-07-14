@@ -357,6 +357,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         action="store_true",
         help="print agent contract and exit 0",
     )
+    ap.add_argument(
+        "--no-shared-sim",
+        action="store_true",
+        help="R21 off: each layer spawns its own --start-sim (slower)",
+    )
     args = ap.parse_args(list(argv) if argv is not None else None)
 
     if args.print_contract:
@@ -418,60 +423,125 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
     )
 
-    # R19 integrity inject: false-green packs must all go RED (exit 0 = harness OK)
-    integ_cmd = [
-        sys.executable,
-        str(FZ_ROOT / "protocol_sim" / "run_regression.py"),
-        "--start-sim",
-        "--integrity-inject",
-    ]
-    code, dur = _run(integ_cmd)
-    if code == 2:
-        print("AGENT_GATE: integrity exit 2 — retry once after 1s", flush=True)
-        time.sleep(1.0)
-        code2, dur2 = _run(integ_cmd)
-        code, dur = code2, round(dur + dur2, 2)
-    layers.append(
-        Layer(
-            id="integrity",
-            name="inject_false_green_must_red",
-            status="pass" if code == 0 else "fail",
-            exit_code=code,
-            duration_s=dur,
-            log_hint="protocol_sim/results/integrity_inject_last.json",
-            detail="R19: harness must catch false-green expects",
+    # R21: one protocol-mode sim for integrity + protocol (hardware still own process)
+    use_shared = not bool(getattr(args, "no_shared_sim", False))
+    sess = None
+    endpoint: List[str] = []
+    stop_session = None  # type: ignore
+    start_protocol_session = None  # type: ignore
+    if use_shared:
+        try:
+            from sim_common.sim_session import (  # type: ignore
+                start_protocol_session,
+                stop_session,
+            )
+        except ImportError:
+            start_protocol_session = None  # type: ignore
+            stop_session = None  # type: ignore
+            use_shared = False
+        if use_shared and start_protocol_session is not None:
+            try:
+                t_sess = time.time()
+                sess = start_protocol_session()
+                endpoint = sess.endpoint_args()
+                print(
+                    f"AGENT_GATE shared_sim host={sess.host} port={sess.port} "
+                    f"pid={sess.pid} boot={round(time.time() - t_sess, 2)}s",
+                    flush=True,
+                )
+                layers.append(
+                    Layer(
+                        id="sim_session",
+                        name="shared_protocol_sim",
+                        status="pass",
+                        duration_s=round(time.time() - t_sess, 2),
+                        detail=f"{sess.host}:{sess.port}",
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 — fall back to per-layer start
+                print(f"AGENT_GATE: shared sim failed ({exc}); using --start-sim", flush=True)
+                use_shared = False
+                sess = None
+                endpoint = []
+                layers.append(
+                    Layer(
+                        id="sim_session",
+                        name="shared_protocol_sim",
+                        status="skip",
+                        detail=f"fallback: {exc}",
+                    )
+                )
+    else:
+        layers.append(
+            Layer(
+                id="sim_session",
+                name="shared_protocol_sim",
+                status="skip",
+                detail="--no-shared-sim",
+            )
         )
-    )
 
-    # protocol (retry once on preflight/connect flake — common on Windows port races)
-    # includes cases/golden/*.json by default (R19)
-    proto_cmd = [
-        sys.executable,
-        str(FZ_ROOT / "protocol_sim" / "run_regression.py"),
-        "--start-sim",
-    ]
-    # When GRBL_ROOT is set, also soft-stream product src/tests samples
-    if grbl is not None:
-        proto_cmd.append("--include-repo-tests")
-    code, dur = _run(proto_cmd)
-    if code == 2:
-        print("AGENT_GATE: protocol exit 2 — retry once after 1s", flush=True)
-        time.sleep(1.0)
-        code2, dur2 = _run(proto_cmd)
-        code, dur = code2, round(dur + dur2, 2)
-    layers.append(
-        Layer(
-            id="protocol",
-            name="protocol_sim",
-            status="pass" if code == 0 else "fail",
-            exit_code=code,
-            duration_s=dur,
-            log_hint="protocol_sim/results/last_report.json + golden_last.json",
+    def _proto_base() -> List[str]:
+        cmd = [
+            sys.executable,
+            str(FZ_ROOT / "protocol_sim" / "run_regression.py"),
+        ]
+        if endpoint:
+            cmd.extend(endpoint)
+        else:
+            cmd.append("--start-sim")
+        return cmd
+
+    try:
+        # R19 integrity inject: false-green packs must all go RED
+        integ_cmd = _proto_base() + ["--integrity-inject"]
+        code, dur = _run(integ_cmd)
+        if code == 2:
+            print("AGENT_GATE: integrity exit 2 — retry once after 1s", flush=True)
+            time.sleep(1.0)
+            code2, dur2 = _run(integ_cmd)
+            code, dur = code2, round(dur + dur2, 2)
+        layers.append(
+            Layer(
+                id="integrity",
+                name="inject_false_green_must_red",
+                status="pass" if code == 0 else "fail",
+                exit_code=code,
+                duration_s=dur,
+                log_hint="protocol_sim/results/integrity_inject_last.json",
+                detail="R19: harness must catch false-green expects",
+            )
         )
-    )
+
+        # protocol includes golden by default (R19)
+        proto_cmd = _proto_base()
+        if grbl is not None:
+            proto_cmd.append("--include-repo-tests")
+        code, dur = _run(proto_cmd)
+        if code == 2:
+            print("AGENT_GATE: protocol exit 2 — retry once after 1s", flush=True)
+            time.sleep(1.0)
+            code2, dur2 = _run(proto_cmd)
+            code, dur = code2, round(dur + dur2, 2)
+        layers.append(
+            Layer(
+                id="protocol",
+                name="protocol_sim",
+                status="pass" if code == 0 else "fail",
+                exit_code=code,
+                duration_s=dur,
+                log_hint="protocol_sim/results/last_report.json + golden_last.json",
+            )
+        )
+    finally:
+        if sess is not None and stop_session is not None:
+            print("AGENT_GATE: stopping shared protocol sim", flush=True)
+            stop_session(sess)
+            sess = None
 
     need_hw = profile in ("standard", "deep", "firmware")
     if need_hw:
+        # hardware needs -s/-b step logs → own sim process (not shared)
         hw_cmd = [
             sys.executable,
             str(FZ_ROOT / "hardware_sim" / "run_hw_sim.py"),
@@ -596,6 +666,7 @@ def _finish(
         "next_commands": {
             "recheck_quick": "python scripts/agent_gate.py --profile quick",
             "recheck_standard": "python scripts/agent_gate.py --profile standard",
+            "no_shared_sim": "python scripts/agent_gate.py --profile quick --no-shared-sim",
             "protocol_only": "python protocol_sim/run_regression.py --start-sim",
             "golden_only": "python protocol_sim/run_regression.py --start-sim --golden",
             "integrity_inject": (

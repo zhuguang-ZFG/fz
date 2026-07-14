@@ -40,8 +40,10 @@ fz/
 # ★ Agent vibe coding（首选：改完代码主动跑，少烧录）
 $env:GRBL_ROOT='D:\Users\Grbl_Esp32'
 python scripts/agent_gate.py
+# R21: integrity+protocol share one sim; --no-shared-sim to disable
 python scripts/agent_loop.py --profile standard    # gate→失败重跑→再 gate
 python scripts/release_honesty.py --require-agent-gate --allow-pending-hil  # 发版诚实度
+# R22 CI: .github/workflows/host_sil.yml
 # 报告: results/agent_gate_last.json / release_honesty_last.json
 # 详见 docs/AGENT_VIBE_CODING.md · docs/specs/2026-07-14-eda-inspired-release-honesty.md
 
