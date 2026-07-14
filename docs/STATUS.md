@@ -24,6 +24,7 @@ Last updated: 2026-07-14
 | R15 | Soft src/tests + $G/$I status pack | **done** | `cases/soft` + `cases/status` |
 | R16 | sim_rerun + soft_divergence + --only | **done** | `scripts/sim_rerun.py` |
 | R17 | EDA-style honesty + agent_loop | **done** | `release_honesty.py` / `agent_loop.py` |
+| R18 | Wokwi scaffold (Espressif third-party) | **done** | `chip_sim/wokwi/` + `run_wokwi_smoke.py` |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 

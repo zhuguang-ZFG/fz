@@ -134,7 +134,13 @@ def probe() -> Dict[str, Any]:
         "install": {
             "qemu": "https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/tools/qemu.html",
             "qemu_releases": "https://github.com/espressif/qemu/releases",
+            "wokwi_espressif_zh": (
+                "https://docs.espressif.com/projects/esp-idf/zh_CN/latest/"
+                "esp32s3/third-party-tools/wokwi.html"
+            ),
+            "wokwi_site": "https://wokwi.com/",
             "wokwi_ci": "https://docs.wokwi.com/wokwi-ci/getting-started",
+            "wokwi_cli_install": "https://docs.wokwi.com/wokwi-ci/cli-installation",
             "renode": "https://renode.io/",
         },
         "honest_limits": [

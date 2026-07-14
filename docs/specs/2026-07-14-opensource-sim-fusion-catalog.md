@@ -57,7 +57,7 @@
 
 | 项目 | 链接 | 能力 | 限制 |
 |------|------|------|------|
-| **Wokwi** | [wokwi.com](https://wokwi.com) · [CI 文档](https://docs.wokwi.com/wokwi-ci/getting-started) · [wokwi-ci-action](https://github.com/wokwi/wokwi-ci-action) | ESP32 板级+外设可视化、串口断言、GitHub Actions | **额度/token**；复杂运动/I2S 扩展板难建模；上传固件到云（有 on-prem 商谈） |
+| **Wokwi** | [wokwi.com](https://wokwi.com) · [乐鑫官方第三方工具页](https://docs.espressif.com/projects/esp-idf/zh_CN/latest/esp32s3/third-party-tools/wokwi.html) · [CI](https://docs.wokwi.com/wokwi-ci/getting-started) | 板级仿真、Wi‑Fi、GDB、CLI/`idf.py wokwi`(IDF6+)；本仓脚手架 `chip_sim/wokwi/` | **额度/token**；Arduino 产品全栈不保证；**不进 agent_gate 硬门禁** |
 | linux.do 等社区 | 推荐 Wokwi 作教学/小项目仿真 | 验证「有人在用」 | 非 CNC 写字机全栈 |
 
 ### 2.3 系统级多节点

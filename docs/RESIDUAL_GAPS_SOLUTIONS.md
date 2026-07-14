@@ -62,7 +62,7 @@
 | 方案 | 链接 | 能做什么 |
 |------|------|----------|
 | **Espressif QEMU** | [IDF 文档](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/tools/qemu.html) · [espressif/qemu](https://github.com/espressif/qemu) | 官方芯片 SIL；Windows 有预构建 |
-| **Wokwi CI** | [docs](https://docs.wokwi.com/wokwi-ci/getting-started) | 板级+串口场景、GitHub Action |
+| **Wokwi CI** | [docs](https://docs.wokwi.com/wokwi-ci/getting-started) · [乐鑫第三方工具](https://docs.espressif.com/projects/esp-idf/zh_CN/latest/esp32s3/third-party-tools/wokwi.html) · [wokwi.com](https://wokwi.com/) | 板级+串口/Wi‑Fi 仿真、CLI/CI；**非**纸路签字 |
 | **Renode** | [renode.io](https://renode.io/) | 系统级/多节点 |
 | linux.do | 常推 Wokwi 做 ESP 教学仿真 | 验证「有人用」 |
 

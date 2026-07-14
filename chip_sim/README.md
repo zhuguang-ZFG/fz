@@ -63,11 +63,28 @@ python chip_sim/run_qemu_smoke.py
 3. Or set `ESP_QEMU` to `qemu-system-xtensa.exe`.  
 4. **Product caveat:** full Grbl_Esp32 Arduino image is **not** guaranteed to boot under QEMU.
 
-### Wokwi CLI
+### Wokwi（乐鑫官方第三方工具）
 
-1. Install CLI from Wokwi docs; set `WOKWI_CLI_TOKEN`.  
-2. Add `wokwi.toml` + scenario under a **minimal** sketch (prefer `test_drive` subset), not full paper machine first.  
-3. Free tier has monthly simulation minutes.
+- **乐鑫文档：** https://docs.espressif.com/projects/esp-idf/zh_CN/latest/esp32s3/third-party-tools/wokwi.html  
+- **站点：** https://wokwi.com/  
+- 支持：浏览器、VS Code、`wokwi-cli`、CI `--expect-text`；Wi‑Fi 仿真；**结果可能与真机不同**（官方备注）。  
+- 本产品是 **Arduino/PlatformIO**，用 **`wokwi-cli` + `chip_sim/wokwi/`**，不要依赖 `idf.py wokwi`（需 IDF ≥ 6）。
+
+```powershell
+# 探测 CLI / token
+python chip_sim/probe_chip_tools.py
+
+# 仅生成 results/wokwi/wokwi.toml（需已 pio 出 firmware.bin）
+$env:GRBL_ROOT='D:\Users\Grbl_Esp32'
+python chip_sim/run_wokwi_smoke.py --dry-run
+
+# 真跑（需 wokwi-cli + WOKWI_CLI_TOKEN）
+# $env:WOKWI_CLI_TOKEN='...'
+# python chip_sim/run_wokwi_smoke.py --expect-text "Grbl"
+```
+
+脚手架：`chip_sim/wokwi/README.md`、`wokwi.toml`、`diagram.json`。  
+**Free 档有仿真分钟额度；不进 `agent_gate` 硬门禁。**
 
 ### Renode
 
