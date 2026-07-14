@@ -71,16 +71,16 @@ python chip_sim/run_qemu_smoke.py
 - 本产品是 **Arduino/PlatformIO**，用 **`wokwi-cli` + `chip_sim/wokwi/`**，不要依赖 `idf.py wokwi`（需 IDF ≥ 6）。
 
 ```powershell
-# 探测 CLI / token
-python chip_sim/probe_chip_tools.py
+# 安装 CLI（官方脚本 + User PATH）
+.\chip_sim\install_wokwi_windows.ps1
 
-# 仅生成 results/wokwi/wokwi.toml（需已 pio 出 firmware.bin）
+# 令牌：https://wokwi.com/dashboard/ci  → User 环境变量 WOKWI_CLI_TOKEN
+# $env:WOKWI_CLI_TOKEN='...'
+
+python chip_sim/probe_chip_tools.py
 $env:GRBL_ROOT='D:\Users\Grbl_Esp32'
 python chip_sim/run_wokwi_smoke.py --dry-run
-
-# 真跑（需 wokwi-cli + WOKWI_CLI_TOKEN）
-# $env:WOKWI_CLI_TOKEN='...'
-# python chip_sim/run_wokwi_smoke.py --expect-text "Grbl"
+python chip_sim/run_wokwi_smoke.py --expect-text "Grbl"
 ```
 
 脚手架：`chip_sim/wokwi/README.md`、`wokwi.toml`、`diagram.json`。  

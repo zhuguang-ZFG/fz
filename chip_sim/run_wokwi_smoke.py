@@ -35,7 +35,20 @@ RESULTS = FZ_ROOT / "results" / "wokwi"
 
 
 def find_wokwi_cli() -> Optional[str]:
-    return shutil.which("wokwi-cli") or shutil.which("wokwi-cli.cmd")
+    for name in ("wokwi-cli", "wokwi-cli.exe", "wokwi-cli.cmd"):
+        w = shutil.which(name)
+        if w:
+            return w
+    # Official Windows installer: %USERPROFILE%\.wokwi\bin\wokwi-cli.exe
+    home = Path(os.environ.get("USERPROFILE") or os.environ.get("HOME") or "")
+    for p in (
+        home / ".wokwi" / "bin" / "wokwi-cli.exe",
+        home / ".wokwi" / "bin" / "wokwi-cli",
+        Path("C:/Users/zhugu/.wokwi/bin/wokwi-cli.exe"),
+    ):
+        if p.is_file():
+            return str(p)
+    return None
 
 
 def resolve_firmware(grbl_root: Path) -> tuple[Optional[Path], Optional[Path]]:
@@ -160,28 +173,36 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if not cli:
         print(
-            "ERROR: wokwi-cli not on PATH\n"
-            "  Install: https://docs.wokwi.com/wokwi-ci/cli-installation\n"
-            "  Or use browser: https://wokwi.com/",
+            "ERROR: wokwi-cli not found\n"
+            "  Install: .\\chip_sim\\install_wokwi_windows.ps1\n"
+            "  Or: https://docs.wokwi.com/wokwi-ci/cli-installation\n"
+            "  Browser (no CLI): https://wokwi.com/",
             file=sys.stderr,
         )
         report["error"] = "no_cli"
+        report["status"] = "skipped"
         (RESULTS / "wokwi_smoke_report.json").write_text(
             json.dumps(report, indent=2) + "\n", encoding="utf-8"
         )
-        return 2 if args.require else 2
+        return 2 if args.require else 0
 
     if not token:
         print(
-            "ERROR: WOKWI_CLI_TOKEN not set (Wokwi CI Dashboard)\n"
-            "  https://wokwi.com/dashboard/ci",
+            "SKIP: WOKWI_CLI_TOKEN not set — CLI simulate needs a token.\n"
+            "  1) Login https://wokwi.com/dashboard/ci  → Create token\n"
+            "  2) $env:WOKWI_CLI_TOKEN='...'\n"
+            "  3) Or permanent: "
+            "[Environment]::SetEnvironmentVariable('WOKWI_CLI_TOKEN','...','User')\n"
+            "  Config already written under results/wokwi/ — ready when token is set.\n"
+            "  Browser without token: https://wokwi.com/",
             file=sys.stderr,
         )
         report["error"] = "no_token"
+        report["status"] = "skipped_no_token"
         (RESULTS / "wokwi_smoke_report.json").write_text(
             json.dumps(report, indent=2) + "\n", encoding="utf-8"
         )
-        return 2 if args.require else 2
+        return 2 if args.require else 0
 
     cmd = [
         cli,

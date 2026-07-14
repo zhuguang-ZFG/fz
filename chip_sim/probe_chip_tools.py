@@ -33,6 +33,21 @@ def _which(name: str) -> Optional[str]:
     return shutil.which(name)
 
 
+def _find_wokwi_cli() -> Optional[str]:
+    for name in ("wokwi-cli", "wokwi-cli.exe", "wokwi-cli.cmd"):
+        w = shutil.which(name)
+        if w:
+            return w
+    home = Path(os.environ.get("USERPROFILE") or os.environ.get("HOME") or "")
+    for p in (
+        home / ".wokwi" / "bin" / "wokwi-cli.exe",
+        home / ".wokwi" / "bin" / "wokwi-cli",
+    ):
+        if p.is_file():
+            return str(p)
+    return None
+
+
 def _find_vendored_qemu() -> Optional[str]:
     root = FZ_ROOT / "vendor" / "espressif_qemu"
     if not root.is_dir():
@@ -96,7 +111,7 @@ def probe() -> Dict[str, Any]:
     tools = {
         "qemu_system_xtensa": _which("qemu-system-xtensa") or _find_vendored_qemu(),
         "qemu_system_riscv32": _which("qemu-system-riscv32"),
-        "wokwi_cli": _which("wokwi-cli"),
+        "wokwi_cli": _find_wokwi_cli(),
         "renode": _which("renode") or _which("renode.exe"),
         "idf_py": _which("idf.py"),
         "esptool": _which("esptool") or _which("esptool.py") or _which("esptool.exe"),
