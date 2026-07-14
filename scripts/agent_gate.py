@@ -762,7 +762,10 @@ def _finish(
             json_out if json_out.is_absolute() else FZ_ROOT / json_out
         ),
         "triage_md": str(FZ_ROOT / "results" / "triage_last.md"),
+        "observe_md": str(FZ_ROOT / "results" / "agent_observe_last.md"),
         "log_paths": [
+            str(FZ_ROOT / "results" / "agent_observe_last.md"),
+            str(FZ_ROOT / "results" / "agent_observe_last.json"),
             str(FZ_ROOT / "results" / "agent_gate_last.json"),
             str(FZ_ROOT / "results" / "triage_last.md"),
             str(FZ_ROOT / "protocol_sim" / "results" / "last_report.json"),
@@ -784,6 +787,16 @@ def _finish(
         triage = None
         print(f"AGENT_GATE: triage skip ({exc})", flush=True)
 
+    # R38: always-on observe (findings + next_actions) — green or red
+    observe = None
+    try:
+        from agent_observe import print_observe_brief, write_observe  # type: ignore
+
+        observe = write_observe()
+        print(f"observe: {FZ_ROOT / 'results' / 'agent_observe_last.md'}", flush=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"AGENT_GATE: observe skip ({exc})", flush=True)
+
     print("\n=== agent_gate ===", flush=True)
     for x in layers:
         print(
@@ -798,9 +811,15 @@ def _finish(
     print("AGENT_HINTS:", flush=True)
     for h in hints:
         print(f"  - {h}", flush=True)
+    if observe is not None:
+        try:
+            print_observe_brief(observe)
+        except Exception as exc:  # noqa: BLE001
+            print(f"AGENT_GATE: observe brief skip ({exc})", flush=True)
     if overall == 0:
         print(
             "AGENT_NEXT: host SIL green — safe to continue coding; "
+            "read results/agent_observe_last.md for soft/optimize findings; "
             "still need HIL for paper/BT before ship.",
             flush=True,
         )
@@ -812,7 +831,7 @@ def _finish(
             except Exception as exc:  # noqa: BLE001
                 print(f"AGENT_GATE: fail slices skip ({exc})", flush=True)
         print(
-            "AGENT_NEXT: read results/triage_last.md + agent_hints; "
+            "AGENT_NEXT: read results/agent_observe_last.md + triage_last.md; "
             "python scripts/sim_rerun.py --from-last; "
             "do NOT flash board until protocol/hardware pass "
             "(unless debugging silicon-only).",
@@ -835,10 +854,11 @@ COMMAND (from any cwd if FZ_ROOT set):
   python scripts/agent_gate.py
   # or: python scripts/agent_gate.py --profile quick|standard|deep|firmware
 
-READ on failure:
-  D:\\Users\\zhugu\\fz\\results\\triage_last.md          (R34 one-page)
+READ always (green or red) — R38:
+  D:\\Users\\zhugu\\fz\\results\\agent_observe_last.md   findings + next_actions
+  D:\\Users\\zhugu\\fz\\results\\triage_last.md          (R34)
   D:\\Users\\zhugu\\fz\\results\\agent_gate_last.json
-  → failures[], agent_hints[], fail slices printed on red (R35)
+  red also: FAIL SLICES (R35)
 
 DO NOT:
   - Skip gate and burn firmware to "see if it works" for parser/motion bugs

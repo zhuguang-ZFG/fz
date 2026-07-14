@@ -14,9 +14,14 @@ $env:GRBL_ROOT='D:\Users\Grbl_Esp32'
 python scripts/agent_gate.py
 ```
 
-报告（固定路径，方便 agent 解析）：
+报告（固定路径，方便 agent 解析）— **绿/红都要读**：
 
-`D:\Users\zhugu\fz\results\agent_gate_last.json`
+| 文件 | 用途 |
+|------|------|
+| `results/agent_observe_last.md` | **R38 首选**：findings + next_actions（可观察/可改进） |
+| `results/agent_observe_last.json` | 同上，机读 |
+| `results/triage_last.md` | R34 失败切片汇总 |
+| `results/agent_gate_last.json` | 层状态 + hints |
 
 ---
 
@@ -40,8 +45,9 @@ python scripts/agent_gate.py
 
 ### 失败时
 
-1. **先读一页 triage（R34）：** `results/triage_last.md`（gate 结束总会写；红时 stdout 还有 **FAIL SLICES** R35）  
-2. 读 `results/agent_gate_last.json` → `failures` + `agent_hints`  
+1. **先读 observe（R38）：** `results/agent_observe_last.md` — hard/soft/optimize 与 `next_actions`  
+2. **再读 triage（R34）：** `results/triage_last.md`（红时 stdout 还有 **FAIL SLICES** R35）  
+3. 读 `results/agent_gate_last.json` → `failures` + `agent_hints`  
 3. **只重跑失败用例（快）：**  
    ```powershell
    python scripts/sim_log_triage.py          # 单独刷新 triage

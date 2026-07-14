@@ -22,7 +22,11 @@ python scripts/agent_gate.py --profile standard
 **Before** claiming done / fixed / ready for product agents:
 
 1. Exit code **0** and `results/agent_gate_last.json` → `overall_status: pass`  
-2. On failure: fix using `agent_hints` + `python scripts/sim_rerun.py --from-last` — do **not** skip  
+2. Read `results/agent_observe_last.md` (R38) — even when green: soft/optimize findings  
+3. On failure: follow `next_actions` + `python scripts/sim_rerun.py --from-last` — do **not** skip  
+4. If `agent_should_block_done_claim` is true in observe JSON → **do not** claim fixed  
+
+Observable loop: **gate → observe → fix → sim_rerun → gate**.
 
 Do **not**:
 
