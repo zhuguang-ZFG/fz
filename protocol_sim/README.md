@@ -35,6 +35,10 @@ Defaults to `vendor/grblhal_sim/bin/grblHAL_sim.exe` if `GRBLHAL_SIM` unset.
 python protocol_sim/run_regression.py --start-sim --golden
 python protocol_sim/run_regression.py --start-sim --integrity-inject
 # reports: results/golden_last.json , results/integrity_inject_last.json
+# R23 record new goldens from last run:
+python scripts/golden_record.py --from-last --kinds fail --only NAME --dry-run
+# R24 soft allowlist:
+python scripts/soft_allowlist.py
 ```
 
 Fail set (community CAM): bad number, modal, undefined feed, unsupported G/M, arc e35/e34, G1 no target.  

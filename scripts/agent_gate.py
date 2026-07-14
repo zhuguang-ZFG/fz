@@ -284,6 +284,11 @@ def agent_hints_for_failures(layers: List[Layer]) -> List[str]:
                 "Read protocol_sim/results/integrity_inject_last.json; "
                 "re-run: python protocol_sim/run_regression.py --start-sim --integrity-inject"
             )
+        elif L.id == "soft_allowlist":
+            hints.append(
+                "Soft allowlist failed — add match to protocol_sim/cases/soft/allowlist.yaml "
+                "or reduce product soft divergence. See soft_allowlist_last.json"
+            )
         elif L.id == "release_smoke":
             hints.append("full_release_smoke failed — open latest release/bundles/*/SUMMARY.md")
         elif L.id == "g0":
@@ -296,7 +301,7 @@ def agent_hints_for_failures(layers: List[Layer]) -> List[str]:
             )
     if not hints:
         hints.append("No hard failures.")
-    # soft divergence (informational)
+    # soft divergence + allowlist (informational)
     soft_path = FZ_ROOT / "protocol_sim" / "results" / "soft_divergence.json"
     if soft_path.is_file():
         try:
@@ -312,6 +317,19 @@ def agent_hints_for_failures(layers: List[Layer]) -> List[str]:
                 hints.append(
                     f"Soft streams had {soft.get('total_err_lines')} err lines "
                     "(informational; host SIL still green if hard passed)."
+                )
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+    al_path = FZ_ROOT / "protocol_sim" / "results" / "soft_allowlist_last.json"
+    if al_path.is_file():
+        try:
+            al = json.loads(al_path.read_text(encoding="utf-8"))
+            unk = al.get("unknown_high") or []
+            if unk and al.get("passed") is False:
+                hints.append(
+                    "Soft allowlist UNKNOWN_HIGH: "
+                    + ", ".join(str(x.get("name")) for x in unk[:6])
+                    + " — edit cases/soft/allowlist.yaml"
                 )
         except (OSError, json.JSONDecodeError, TypeError):
             pass
@@ -539,6 +557,40 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             stop_session(sess)
             sess = None
 
+    # R24: soft allowlist — unknown high_divergence is warn on quick/standard, fail on deep+
+    soft_cmd = [
+        sys.executable,
+        str(FZ_ROOT / "scripts" / "soft_allowlist.py"),
+    ]
+    code, dur = _run(soft_cmd)
+    soft_strict = profile in ("deep", "firmware")
+    if code == 0:
+        soft_status = "pass"
+    elif soft_strict:
+        soft_status = "fail"
+    else:
+        # keep gate green for vibe coding; surface via detail + hints
+        soft_status = "pass"
+    layers.append(
+        Layer(
+            id="soft_allowlist",
+            name="soft_divergence_allowlist",
+            status=soft_status,
+            exit_code=code,
+            duration_s=dur,
+            log_hint="protocol_sim/results/soft_allowlist_last.json",
+            detail=(
+                "ok"
+                if code == 0
+                else (
+                    "unknown high soft divergence (hard on deep/firmware)"
+                    if soft_strict
+                    else "WARN unknown high soft (not hard-fail on quick/standard)"
+                )
+            ),
+        )
+    )
+
     need_hw = profile in ("standard", "deep", "firmware")
     if need_hw:
         # hardware needs -s/-b step logs → own sim process (not shared)
@@ -672,6 +724,10 @@ def _finish(
             "integrity_inject": (
                 "python protocol_sim/run_regression.py --start-sim --integrity-inject"
             ),
+            "golden_record": (
+                "python scripts/golden_record.py --from-last --kinds fail --only NAME"
+            ),
+            "soft_allowlist": "python scripts/soft_allowlist.py",
             "hardware_only": "python hardware_sim/run_hw_sim.py --start-sim",
             "rerun_failed": "python scripts/sim_rerun.py --from-last",
             "list_failures": "python scripts/sim_rerun.py --list",

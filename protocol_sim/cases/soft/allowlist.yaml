@@ -1,0 +1,23 @@
+# R24: machine-check soft stream divergence allowlist
+# high_divergence from soft_divergence.json is OK only if matched here.
+version: 1
+# Ratio used by protocol runner for high_divergence flag (>= 0.5)
+high_ratio_threshold: 0.5
+# Unlisted soft files: if high_divergence and not matched → unknown
+entries:
+  - match: parsetest_comments
+    max_err_ratio: 1.0
+    known_error_codes: ["25"]
+    notes: "inline/parenthesis comments vs grblHAL → error:25"
+  - match: parsetest
+    max_err_ratio: 1.0
+    notes: "product src/tests parsetest.nc"
+  - match: user_io
+    max_err_ratio: 1.0
+    notes: "M62/M63 product IO"
+  - match: spindle_testing
+    max_err_ratio: 0.8
+    notes: "product spindle sample"
+  - match: spindle_cam
+    max_err_ratio: 0.5
+    notes: "soft spindle_cam_subset should stay low divergence"

@@ -52,6 +52,11 @@ python scripts/agent_gate.py
 python protocol_sim/run_regression.py --start-sim --golden
 python protocol_sim/run_regression.py --start-sim --integrity-inject
 python -m unittest scripts.test_gate_integrity -v
+# R23 从 last_report / fail JSON 录金样（默认不覆盖手写 golden）
+python scripts/golden_record.py --from-last --kinds fail --only undefined_feed --dry-run
+python scripts/golden_record.py --from-case protocol_sim/cases/fail/bad_number.json
+# R24 soft 高分歧是否在允许名单
+python scripts/soft_allowlist.py
 ```
 
 ### 绿了也不要说的话
