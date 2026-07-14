@@ -115,6 +115,7 @@
 | P0 | A2A 斜杠 | **重启 a2a-bridge** 验证 register→send |
 | P0b | A2A strict 工单 | 用 `a2a_workorders/TEMPLATE.md`（```gates + risk + owns） |
 | P1 | G3b 可脚本部分 | **已有** `hil/paper_m30_serial.py`；一键 `scripts/hil_to_gate.py --port` |
+| P1b | 全 Win 主机仿真 | **已有** `scripts/win_full_sim.py`（L0–L4；非芯片） |
 | P2 | OTA | USB 双版本：`hil_to_gate.py --with-g4`；真 Wi-Fi OTA 仍证据清单 |
 | P3 | QEMU | 维持不做产品门禁 |
 

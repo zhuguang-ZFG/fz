@@ -33,14 +33,17 @@ fz/
 - [A2A 工作流](docs/specs/2026-07-14-a2a-sim-release-workflow-design.md)  
 
 ```powershell
-# 一键自动化冒烟（默认无真机）
+# Windows 全主机 SIL（grblHAL_sim 协议+步进植物+单测；非芯片/非产品纸路）
+python scripts/win_full_sim.py
+# 门禁冒烟（默认无真机）
 python scripts/full_release_smoke.py
 # HIL 证据 → release_gate（无 --port 仅离线；有板再加 COM）
 python scripts/hil_to_gate.py --skip-smoke
 # python scripts/hil_to_gate.py --port COM7 [--with-g4]
 ```
 
-术语：主路径是 **SIL 主机仿真 + 上线真硅清单**，不是芯片全真孪生。
+术语：主路径是 **SIL 主机仿真 + 上线真硅清单**，不是芯片全真孪生。  
+`win_full_sim` 报告字段 `claims_forbidden` 禁止把绿结果说成产品纸路/BT/OTA/QEMU 已验证。
 
 ---
 

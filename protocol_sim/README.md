@@ -19,6 +19,8 @@ Defaults to `vendor/grblhal_sim/bin/grblHAL_sim.exe` if `GRBLHAL_SIM` unset.
 - `cases/pass/*.nc` — expect ok  
 - `cases/fail/*.json` — expect error codes  
 
+Expanded fail set (Windows host SIL): bad number, modal conflict, undefined feed, unsupported G-code, missing axis word, arc without IJK/R, invalid G999. 
+
 ## Design
 
 See `docs/specs/2026-07-14-hardware-sim-optimization-design.md` (protocol is the baseline layer) and software fullchain design for cloud SIL.

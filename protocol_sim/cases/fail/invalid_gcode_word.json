@@ -1,0 +1,12 @@
+{
+  "name": "invalid_gcode_word_G999",
+  "setup": ["G21"],
+  "steps": [
+    {
+      "send": "G999",
+      "expect": "error",
+      "codes": ["20", "2", "3"],
+      "wait": 2.0
+    }
+  ]
+}

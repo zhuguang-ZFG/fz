@@ -29,7 +29,22 @@ def main(argv=None) -> int:
         default=None,
         help="override scope yaml (default pre-release-min or dev-cloud)",
     )
+    ap.add_argument(
+        "--with-win-full-sim",
+        action="store_true",
+        help="run scripts/win_full_sim.py first (host SIL stack; not silicon)",
+    )
     args = ap.parse_args(argv)
+
+    if args.with_win_full_sim:
+        print("RUN: win_full_sim pre-stack")
+        w = subprocess.run(
+            [sys.executable, str(FZ_ROOT / "scripts" / "win_full_sim.py")],
+            cwd=str(FZ_ROOT),
+            env=os.environ.copy(),
+        )
+        if w.returncode != 0:
+            return w.returncode
 
     if args.scope:
         scope = args.scope if args.scope.is_absolute() else FZ_ROOT / args.scope

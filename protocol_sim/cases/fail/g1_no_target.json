@@ -1,0 +1,12 @@
+{
+  "name": "g1_no_target_or_feed",
+  "setup": ["G21", "G90", "G94"],
+  "steps": [
+    {
+      "send": "G1",
+      "expect": "error",
+      "codes": ["20", "22", "2", "3"],
+      "wait": 2.0
+    }
+  ]
+}

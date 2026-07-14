@@ -13,6 +13,7 @@ Last updated: 2026-07-14
 | R4 | G2 QWEN contracts | **done** | `run_g2_qwen_contracts.py` (+ QWEN tests) |
 | R5 | G4 OTA evidence + smoke entry | **done** | `g4_ota*`, `full_release_smoke.py` |
 | R6 | A2A strict template + HIL→gate | **done** | `a2a_workorders/TEMPLATE.md`, `scripts/hil_to_gate.py` |
+| R7 | Windows full host SIL entry | **done** | `scripts/win_full_sim.py` (+ expanded protocol cases) |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU full stack | **out of scope** | design non-goal |
 
@@ -20,6 +21,9 @@ Last updated: 2026-07-14
 
 ```powershell
 cd D:\Users\zhugu\fz
+# 全 Win 主机仿真（协议+硬件台架+单测+诚实缺口报告；非芯片/非纸路）
+python scripts/win_full_sim.py
+# .\scripts\win_full_sim.ps1
 python scripts/full_release_smoke.py
 python scripts/hil_to_gate.py --skip-smoke
 # with board: python scripts/hil_to_gate.py --port COM7 [--with-g4]
