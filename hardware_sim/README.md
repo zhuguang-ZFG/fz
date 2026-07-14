@@ -23,10 +23,11 @@ See `docs/specs/2026-07-14-hardware-sim-optimization-design.md`.
 
 | File | Role |
 |------|------|
-| `run_hw_sim.py` | motion delta, travel settings, soft-limit gate, step logs |
+| `run_hw_sim.py` | motion delta, travel settings, soft-limit gate, plant, overrides |
 | `step_oracle.py` | parse `-s` logs → mm travel |
 | `test_step_oracle.py` | unit tests (no sim) |
 | `product_stubs.md` | honest gaps (paper/BT/soft-limit trip) |
+| `../sim_common/` | shared GrblTcp, find_sim, free-port (R11 deep-opt) |
 
 ```powershell
 python -m unittest discover -s hardware_sim -p "test_*.py" -v

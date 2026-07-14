@@ -13,7 +13,6 @@ import argparse
 import json
 import os
 import re
-import socket
 import subprocess
 import sys
 import time
@@ -21,39 +20,33 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
-# local import (run from repo or hardware_sim/)
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+_HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(_HERE))
+sys.path.insert(0, str(_HERE.parent))
 from step_oracle import (  # noqa: E402
     assert_travel_mm,
     max_abs_steps,
     parse_step_log,
+    mm_from_steps,
 )
 from plant import Plant  # noqa: E402
+from sim_common.find_sim import find_sim, VENDOR_SIM  # noqa: E402
+from sim_common.grbl_tcp import (  # noqa: E402
+    GrblTcp,
+    ERROR_RE,
+    ALARM_RE,
+    OK_RE,
+    parse_mpos,
+    wait_idle,
+)
+from sim_common.ports import find_free_port, wait_port  # noqa: E402
 
 
 FZ_ROOT = Path(__file__).resolve().parent.parent
 HW_ROOT = Path(__file__).resolve().parent
 RESULTS = HW_ROOT / "results"
 CASES = HW_ROOT / "cases"
-VENDOR_SIM = FZ_ROOT / "vendor" / "grblhal_sim" / "bin"
-# grblHAL default $100/$101/$102 on this vendored build
 DEFAULT_STEPS_PER_MM = (250.0, 250.0, 250.0)
-
-OK_RE = re.compile(r"^ok\s*$", re.I)
-ERROR_RE = re.compile(r"error:(\d+)", re.I)
-ALARM_RE = re.compile(r"ALARM:(\d+)", re.I)
-MPOS_RE = re.compile(r"MPos:([-\d.]+),([-\d.]+),([-\d.]+)")
-
-
-def find_sim() -> Optional[Path]:
-    env = os.environ.get("GRBLHAL_SIM")
-    if env and Path(env).is_file():
-        return Path(env)
-    for name in ("grblHAL_sim.exe", "grblHAL_sim"):
-        p = VENDOR_SIM / name
-        if p.is_file():
-            return p
-    return None
 
 
 @dataclass
@@ -63,102 +56,6 @@ class CaseResult:
     detail: str = ""
     mpos: Optional[List[float]] = None
     responses: List[str] = field(default_factory=list)
-
-
-class GrblTcp:
-    def __init__(self, host: str, port: int, timeout: float = 5.0) -> None:
-        self.host = host
-        self.port = port
-        self.timeout = timeout
-        self.sock: Optional[socket.socket] = None
-        self._buf = b""
-
-    def connect(self) -> None:
-        self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
-        time.sleep(0.8)
-        self._drain()
-
-    def close(self) -> None:
-        if self.sock:
-            try:
-                self.sock.close()
-            except OSError:
-                pass
-            self.sock = None
-
-    def _drain(self) -> List[str]:
-        lines: List[str] = []
-        if not self.sock:
-            return lines
-        self.sock.settimeout(0.12)
-        try:
-            while True:
-                chunk = self.sock.recv(4096)
-                if not chunk:
-                    break
-                self._buf += chunk
-                while b"\n" in self._buf:
-                    raw, self._buf = self._buf.split(b"\n", 1)
-                    t = raw.decode("utf-8", errors="replace").strip("\r")
-                    if t:
-                        lines.append(t)
-        except (socket.timeout, BlockingIOError):
-            pass
-        finally:
-            if self.sock:
-                self.sock.settimeout(self.timeout)
-        return lines
-
-    def send_line(self, line: str, wait: float = 2.0) -> List[str]:
-        assert self.sock
-        self.sock.sendall((line.rstrip("\r\n") + "\n").encode("utf-8"))
-        deadline = time.time() + wait
-        collected: List[str] = []
-        while time.time() < deadline:
-            got = self._drain()
-            collected.extend(got)
-            if any(OK_RE.match(x) or ERROR_RE.search(x) or ALARM_RE.search(x) for x in got):
-                time.sleep(0.05)
-                collected.extend(self._drain())
-                break
-            time.sleep(0.05)
-        return collected
-
-    def soft_reset(self) -> None:
-        assert self.sock
-        self.sock.sendall(b"\x18")
-        time.sleep(0.5)
-        self._drain()
-
-    def unlock(self) -> None:
-        self.send_line("$X", wait=1.5)
-        self.send_line("G21 G90 G94", wait=1.0)
-
-
-def parse_mpos(responses: Sequence[str]) -> Optional[List[float]]:
-    for r in responses:
-        m = MPOS_RE.search(r)
-        if m:
-            return [float(m.group(1)), float(m.group(2)), float(m.group(3))]
-    return None
-
-
-def wait_idle(client: GrblTcp, timeout: float = 30.0) -> Tuple[Optional[List[float]], List[str]]:
-    """Poll ? until Idle (or timeout). Returns (mpos, responses)."""
-    deadline = time.time() + timeout
-    collected: List[str] = []
-    last_mpos: Optional[List[float]] = None
-    while time.time() < deadline:
-        resp = client.send_line("?", wait=0.8)
-        collected.extend(resp)
-        m = parse_mpos(resp)
-        if m:
-            last_mpos = m
-        joined = " ".join(resp)
-        if "<Idle" in joined or any(x.startswith("<Idle") for x in resp):
-            return last_mpos, collected
-        time.sleep(0.1)
-    return last_mpos, collected
 
 
 def run_motion_case(
@@ -344,6 +241,51 @@ def run_feed_hold_plant(client: GrblTcp, time_factor: float) -> CaseResult:
     )
 
 
+
+
+def run_override_reset_smoke(client: GrblTcp) -> CaseResult:
+    """Realtime override bytes 0x90/0x99/0xA0 (100%) are no-ops; must not kill stream."""
+    client.soft_reset()
+    client.unlock()
+    assert client.sock
+    for b in (b"\x90", b"\x99", b"\xa0"):
+        client.send_realtime(b)
+    time.sleep(0.15)
+    r = client.send_line("?", wait=0.8)
+    ok = any(x.startswith("<") for x in r)
+    return CaseResult(
+        "override_realtime_100pct",
+        ok,
+        detail="" if ok else f"no status after overrides: {r}",
+        responses=r,
+    )
+
+
+def run_check_mode_toggle(client: GrblTcp) -> CaseResult:
+    """$C check mode on/off if supported — protocol smoke (grblHAL)."""
+    client.soft_reset()
+    client.unlock()
+    r1 = client.send_line("$C", wait=1.5)
+    r2 = client.send_line("$C", wait=1.5)
+    r3 = client.send_line("G0 X0", wait=2.0)
+    joined = "\n".join(r1 + r2 + r3)
+    terminal = any(
+        OK_RE.match(x) or ERROR_RE.search(x) or ALARM_RE.search(x) for x in r3
+    )
+    toggled = (
+        any(OK_RE.match(x) for x in r1 + r2)
+        or "check" in joined.lower()
+        or "enable" in joined.lower()
+    )
+    ok = terminal and (toggled or any(OK_RE.match(x) for x in r3))
+    return CaseResult(
+        "check_mode_toggle",
+        ok,
+        detail="" if ok else f"r1={r1} r2={r2} r3={r3}",
+        responses=list(r1) + list(r2) + list(r3),
+    )
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="hardware_sim baseline runner")
     ap.add_argument("--host", default="127.0.0.1")
@@ -376,6 +318,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if not sim:
             print("ERROR: grblHAL_sim not found", file=sys.stderr)
             return 2
+        args.port = find_free_port(args.port, host=args.host)
         # -r must be >0 or step printing is disabled (upstream default 0=no print)
         cmd = [
             str(sim),
@@ -393,8 +336,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "-e",
             str(eeprom),
         ]
-        sim_proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(1.2)
+        sim_proc = subprocess.Popen(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=str(sim.parent)
+        )
+        if not wait_port(args.port, host=args.host, timeout=10.0):
+            print(f"ERROR: sim not listening on {args.port}", file=sys.stderr)
+            sim_proc.terminate()
+            return 2
+        time.sleep(0.2)
 
     client = GrblTcp(args.host, args.port)
     results: List[CaseResult] = []
@@ -427,6 +376,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         results.append(run_settings_travel_roundtrip(client))
         results.append(run_soft_limit_setting_gate(client))
         results.append(run_feed_hold_plant(client, args.time_factor))
+        results.append(run_override_reset_smoke(client))
+        results.append(run_check_mode_toggle(client))
     finally:
         client.close()
         if sim_proc is not None:
@@ -458,8 +409,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         samples = parse_step_log(step_log)
         mx = max_abs_steps(samples)
         # Lower bound: motion cases alone ≈ 15mm X + 5mm Y; plant may add more travel
-        from step_oracle import mm_from_steps
-
         actual_mm = mm_from_steps(mx, DEFAULT_STEPS_PER_MM)
         min_x, min_y = 14.0, 4.0
         ok = actual_mm[0] >= min_x and actual_mm[1] >= min_y

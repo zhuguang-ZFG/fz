@@ -326,7 +326,21 @@ def main(argv: Optional[List[str]] = None) -> int:
             ],
             cwd=str(FZ_ROOT),
         ).returncode
-        code = 0 if code1 == 0 and code2 == 0 and code3 == 0 else 1
+        code4 = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "sim_common",
+                "-p",
+                "test_*.py",
+                "-q",
+            ],
+            cwd=str(FZ_ROOT),
+        ).returncode
+        code = 0 if code1 == 0 and code2 == 0 and code3 == 0 and code4 == 0 else 1
         layers.append(
             LayerResult(
                 id="L3",
@@ -334,7 +348,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 status="pass" if code == 0 else "fail",
                 exit_code=code,
                 duration_s=round(time.time() - t0, 2),
-                detail="hardware_sim + hil + chip_sim unit tests (no serial board)",
+                detail="hardware_sim + hil + chip_sim + sim_common unit tests",
             )
         )
     else:

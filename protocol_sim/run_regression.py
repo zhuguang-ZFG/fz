@@ -16,13 +16,25 @@ import argparse
 import json
 import os
 import re
-import socket
 import subprocess
 import sys
 import time
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
+
+# shared host-SIL client / sim discovery
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from sim_common.find_sim import find_sim, find_validator, VENDOR_SIM  # noqa: E402
+from sim_common.grbl_tcp import (  # noqa: E402
+    GrblTcp,
+    ERROR_RE,
+    ALARM_RE,
+    OK_RE,
+    classify_responses,
+    DEFAULT_TIMEOUT,
+)
+from sim_common.ports import find_free_port, wait_port  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent
@@ -39,16 +51,10 @@ REPO_TESTS = (
     if _GRBL
     else FZ_ROOT / "fixtures" / "grbl_tests"
 )
-VENDOR_SIM = FZ_ROOT / "vendor" / "grblhal_sim" / "bin"
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 7681
-DEFAULT_TIMEOUT = 5.0
-BOOT_WAIT = 0.8
-
-ERROR_RE = re.compile(r"error:(\d+)", re.I)
-ALARM_RE = re.compile(r"ALARM:(\d+)", re.I)
-OK_RE = re.compile(r"^ok\s*$", re.I)
+BOOT_WAIT = 0.55
 
 
 @dataclass
@@ -68,149 +74,13 @@ class CaseResult:
     lines: List[LineResult] = field(default_factory=list)
 
 
-def _env_exe(name: str, default: str) -> Optional[Path]:
-    raw = os.environ.get(name)
-    if raw:
-        p = Path(raw)
-        return p if p.is_file() else None
-    # Search PATH
-    from shutil import which
-
-    w = which(default)
-    return Path(w) if w else None
-
-
-def find_sim() -> Optional[Path]:
-    for cand in (
-        _env_exe("GRBLHAL_SIM", "grblHAL_sim.exe"),
-        _env_exe("GRBLHAL_SIM", "grblHAL_sim"),
-        VENDOR_SIM / "grblHAL_sim.exe",
-        VENDOR_SIM / "grblHAL_sim",
-    ):
-        if cand is not None and Path(cand).is_file():
-            return Path(cand)
-    return None
-
-
-def find_validator() -> Optional[Path]:
-    for cand in (
-        _env_exe("GRBLHAL_VALIDATOR", "grblHAL_validator.exe"),
-        _env_exe("GRBLHAL_VALIDATOR", "grblHAL_validator"),
-        VENDOR_SIM / "grblHAL_validator.exe",
-        VENDOR_SIM / "grblHAL_validator",
-    ):
-        if cand is not None and Path(cand).is_file():
-            return Path(cand)
-    return None
-
-
-class GrblTcpClient:
-    """Minimal line-oriented Grbl client over TCP (sim -p port)."""
-
-    def __init__(self, host: str, port: int, timeout: float = DEFAULT_TIMEOUT) -> None:
-        self.host = host
-        self.port = port
-        self.timeout = timeout
-        self.sock: Optional[socket.socket] = None
-        self._buf = b""
-
-    def connect(self) -> None:
-        self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
-        self.sock.settimeout(self.timeout)
-        # Drain boot banner
-        time.sleep(BOOT_WAIT)
-        self._drain(quiet=True)
-
-    def close(self) -> None:
-        if self.sock:
-            try:
-                self.sock.close()
-            except OSError:
-                pass
-            self.sock = None
-
-    def _drain(self, quiet: bool = False) -> List[str]:
-        lines: List[str] = []
-        if not self.sock:
-            return lines
-        self.sock.settimeout(0.15)
-        try:
-            while True:
-                chunk = self.sock.recv(4096)
-                if not chunk:
-                    break
-                self._buf += chunk
-                while b"\n" in self._buf:
-                    raw, self._buf = self._buf.split(b"\n", 1)
-                    text = raw.decode("utf-8", errors="replace").strip("\r")
-                    if text:
-                        lines.append(text)
-        except (socket.timeout, BlockingIOError):
-            pass
-        finally:
-            if self.sock:
-                self.sock.settimeout(self.timeout)
-        return lines
-
-    def send_line(self, line: str, wait: float = 0.5) -> List[str]:
-        if not self.sock:
-            raise RuntimeError("not connected")
-        payload = (line.rstrip("\r\n") + "\n").encode("utf-8")
-        self.sock.sendall(payload)
-        deadline = time.time() + max(wait, 0.1)
-        collected: List[str] = []
-        while time.time() < deadline:
-            got = self._drain()
-            collected.extend(got)
-            # Stop early on terminal reply
-            if any(OK_RE.match(x) or ERROR_RE.search(x) or ALARM_RE.search(x) for x in got):
-                # small extra drain for multi-line replies
-                time.sleep(0.05)
-                collected.extend(self._drain())
-                break
-            time.sleep(0.05)
-        return collected
-
-    def soft_reset(self) -> List[str]:
-        if not self.sock:
-            raise RuntimeError("not connected")
-        self.sock.sendall(b"\x18")  # Ctrl-X
-        time.sleep(0.4)
-        return self._drain()
-
-    def unlock_if_needed(self) -> None:
-        # Common post-boot: alarm state; $X unlocks on many Grbl builds
-        self.send_line("$X", wait=1.0)
-        self.send_line("G21 G90 G94", wait=1.0)
-        # Prefer work-offset zero; ignore failure (some builds reject L20 form)
-        self.send_line("G10 L20 P1 X0 Y0 Z0", wait=1.0)
+# find_sim / find_validator / GrblTcp / classify_responses: sim_common
+GrblTcpClient = GrblTcp  # backward-compatible name
 
 
 def is_comment_or_blank(line: str) -> bool:
     s = line.strip()
     return (not s) or s.startswith(";") or s.startswith("(")
-
-
-def classify_responses(responses: Sequence[str]) -> Tuple[str, Optional[str]]:
-    """
-    Returns (kind, code) where kind in ok|error|alarm|status|unknown
-    """
-    for r in responses:
-        m = ERROR_RE.search(r)
-        if m:
-            return "error", m.group(1)
-        m = ALARM_RE.search(r)
-        if m:
-            return "alarm", m.group(1)
-    for r in responses:
-        if OK_RE.match(r):
-            return "ok", None
-    for r in responses:
-        if r.startswith("<") and r.endswith(">"):
-            return "status", None
-        if r.startswith("["):
-            return "status", None
-    return "unknown", None
 
 
 def run_pass_file(client: GrblTcpClient, path: Path) -> CaseResult:
@@ -227,7 +97,7 @@ def run_pass_file(client: GrblTcpClient, path: Path) -> CaseResult:
         # Skip pure settings reset noise if present
         line = raw.strip()
         # Motion/spindle lines may take longer if sim runs at realtime (-t 1).
-        wait = 15.0 if re.match(r"(?i)^[GM]\d", line) else 2.0
+        wait = 6.0 if re.match(r"(?i)^[GM]\d", line) else 1.5
         resp = client.send_line(line, wait=wait)
         kind, code = classify_responses(resp)
         ok = kind == "ok"
@@ -424,15 +294,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 file=sys.stderr,
             )
             return 2
+        # Avoid bind clash if previous sim left port open
+        args.port = find_free_port(args.port, host=args.host)
         # -n: no comment prefixes; -t 0: as fast as possible (official sim flag)
         sim_proc = subprocess.Popen(
             [str(sim), "-n", "-t", "0", "-p", str(args.port)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            cwd=str(sim.parent),
         )
-        time.sleep(1.2)
+        if not wait_port(args.port, host=args.host, timeout=8.0):
+            print(f"ERROR: sim did not open {args.host}:{args.port}", file=sys.stderr)
+            sim_proc.terminate()
+            return 2
+        time.sleep(0.25)
 
-    client = GrblTcpClient(args.host, args.port, timeout=args.timeout)
+    client = GrblTcpClient(args.host, args.port, timeout=args.timeout, boot_wait=BOOT_WAIT)
     try:
         try:
             client.connect()
