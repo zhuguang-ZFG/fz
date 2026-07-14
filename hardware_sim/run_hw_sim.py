@@ -363,6 +363,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         action="store_true",
         help="skip builtin cases; only JSON directory",
     )
+    ap.add_argument(
+        "--only",
+        default="",
+        help="comma-separated case name filters (builtin and/or json id)",
+    )
     args = ap.parse_args(list(argv) if argv is not None else None)
     if args.fast:
         args.time_factor = 0.0
@@ -370,6 +375,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         args.no_json_cases = True
     run_json = args.json_cases and not args.no_json_cases and not args.builtin_only
     run_builtin = not args.json_only
+    only_f = [x.strip().lower() for x in (args.only or "").split(",") if x.strip()]
+
+    def _want(name: str) -> bool:
+        if not only_f:
+            return True
+        n = name.lower()
+        return any(f in n or n == f for f in only_f)
 
     RESULTS.mkdir(parents=True, exist_ok=True)
     if step_log_path := (RESULTS / "step_last.log"):
@@ -440,32 +452,72 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             plant = Plant(sock=client.sock, proc=sim_proc)
 
         if run_builtin:
-            results.append(
-                run_motion_case(
-                    client,
-                    "move_x_10",
-                    ["G91", "G1 X10 Y0 F1000", "G90"],
-                    expect_delta=(10.0, 0.0, 0.0),
-                    eps=0.15,
-                    step_log=step_log if args.start_sim else None,
+            builtin_jobs = []
+            if _want("move_x_10"):
+                builtin_jobs.append(
+                    lambda: run_motion_case(
+                        client,
+                        "move_x_10",
+                        ["G91", "G1 X10 Y0 F1000", "G90"],
+                        expect_delta=(10.0, 0.0, 0.0),
+                        eps=0.15,
+                        step_log=step_log if args.start_sim else None,
+                    )
                 )
-            )
-            results.append(
-                run_motion_case(
-                    client,
-                    "move_xy_delta",
-                    ["G91", "G1 X5 Y5 F1000", "G90"],
-                    expect_delta=(5.0, 5.0, 0.0),
-                    eps=0.15,
-                    step_log=step_log if args.start_sim else None,
+            if _want("move_xy_delta"):
+                builtin_jobs.append(
+                    lambda: run_motion_case(
+                        client,
+                        "move_xy_delta",
+                        ["G91", "G1 X5 Y5 F1000", "G90"],
+                        expect_delta=(5.0, 5.0, 0.0),
+                        eps=0.15,
+                        step_log=step_log if args.start_sim else None,
+                    )
                 )
-            )
-            results.append(run_error_case(client, "undefined_feed_G1", "G1 X1"))
-            results.append(run_settings_travel_roundtrip(client))
-            results.append(run_soft_limit_setting_gate(client))
-            results.append(run_feed_hold_plant(client, args.time_factor))
-            results.append(run_override_reset_smoke(client))
-            results.append(run_check_mode_toggle(client))
+            if _want("undefined_feed"):
+                builtin_jobs.append(lambda: run_error_case(client, "undefined_feed_G1", "G1 X1"))
+            if _want("settings_max_travel") or _want("travel"):
+                builtin_jobs.append(lambda: run_settings_travel_roundtrip(client))
+            if _want("soft_limit"):
+                builtin_jobs.append(lambda: run_soft_limit_setting_gate(client))
+            if _want("plant_feed_hold") or _want("feed_hold"):
+                builtin_jobs.append(lambda: run_feed_hold_plant(client, args.time_factor))
+            if _want("override"):
+                builtin_jobs.append(lambda: run_override_reset_smoke(client))
+            if _want("check_mode"):
+                builtin_jobs.append(lambda: run_check_mode_toggle(client))
+            # if --only empty, run all builtins (jobs list was selective only when filters set)
+            if not only_f:
+                results.append(
+                    run_motion_case(
+                        client,
+                        "move_x_10",
+                        ["G91", "G1 X10 Y0 F1000", "G90"],
+                        expect_delta=(10.0, 0.0, 0.0),
+                        eps=0.15,
+                        step_log=step_log if args.start_sim else None,
+                    )
+                )
+                results.append(
+                    run_motion_case(
+                        client,
+                        "move_xy_delta",
+                        ["G91", "G1 X5 Y5 F1000", "G90"],
+                        expect_delta=(5.0, 5.0, 0.0),
+                        eps=0.15,
+                        step_log=step_log if args.start_sim else None,
+                    )
+                )
+                results.append(run_error_case(client, "undefined_feed_G1", "G1 X1"))
+                results.append(run_settings_travel_roundtrip(client))
+                results.append(run_soft_limit_setting_gate(client))
+                results.append(run_feed_hold_plant(client, args.time_factor))
+                results.append(run_override_reset_smoke(client))
+                results.append(run_check_mode_toggle(client))
+            else:
+                for job in builtin_jobs:
+                    results.append(job())
 
         if run_json and CASES.is_dir():
             jresults = run_all_json_cases(
@@ -477,6 +529,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 steps_per_mm=DEFAULT_STEPS_PER_MM,
             )
             for jr in jresults:
+                if only_f and not _want(jr.name):
+                    continue
                 results.append(
                     CaseResult(
                         name=jr.name,
@@ -503,7 +557,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 sim_proc.kill()
 
     # step log: check after process exit (flush) + StepOracle
-    if args.start_sim:
+    # Skip session lower-bound when --only filters a subset (not full motion suite)
+    if args.start_sim and not only_f:
         step_ok = step_log.is_file() and step_log.stat().st_size > 0
         block_ok = block_log.is_file() and block_log.stat().st_size > 0
         results.append(
@@ -546,6 +601,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 name="step_oracle_session_travel",
                 passed=ok and step_ok,
                 detail=detail,
+            )
+        )
+    elif args.start_sim and only_f:
+        results.append(
+            CaseResult(
+                name="session_meta_skipped",
+                passed=True,
+                detail="--only set: skip session step/block lower-bound checks",
             )
         )
 

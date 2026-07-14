@@ -22,6 +22,7 @@ Last updated: 2026-07-14
 | R13 | JSON hw cases + per-move StepOracle + stdin inject | **done** | `case_runner.py` + `cases/` |
 | R14 | Community PC sim case pack + block oracle | **done** | protocol e33/CAM words; block_oracle |
 | R15 | Soft src/tests + $G/$I status pack | **done** | `cases/soft` + `cases/status` |
+| R16 | sim_rerun + soft_divergence + --only | **done** | `scripts/sim_rerun.py` |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 

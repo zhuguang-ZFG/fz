@@ -37,8 +37,14 @@ python scripts/agent_gate.py
 ### 失败时
 
 1. 读 `results/agent_gate_last.json` → `failures` + `agent_hints`  
-2. 按 hint 重跑单层（`protocol_sim` / `hardware_sim`）  
-3. **不要**为了「看串口」去烧录排 parser/error 类问题  
+2. **只重跑失败用例（快）：**  
+   ```powershell
+   python scripts/sim_rerun.py --from-last
+   python scripts/sim_rerun.py --list
+   python scripts/sim_rerun.py --protocol undefined_feed --hardware move_x_10
+   ```  
+3. soft 分歧（产品样本 vs grblHAL，不硬红）：`protocol_sim/results/soft_divergence.json`  
+4. **不要**为了「看串口」去烧录排 parser/error 类问题  
 
 ### 绿了也不要说的话
 

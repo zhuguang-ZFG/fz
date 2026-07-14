@@ -241,6 +241,27 @@ def collect_status_files() -> List[Path]:
     return sorted(STATUS_DIR.glob("*.json"))
 
 
+
+def _only_filters(raw: str) -> List[str]:
+    return [x.strip().lower() for x in (raw or "").split(",") if x.strip()]
+
+
+def _name_matches(name: str, filters: Sequence[str]) -> bool:
+    if not filters:
+        return True
+    n = name.lower()
+    stem = Path(name).stem.lower() if "." in name else n
+    for f in filters:
+        if f in n or f in stem or n.endswith(f) or stem == f:
+            return True
+        # allow soft:foo.nc vs foo
+        if n.startswith("soft:") and f in n[5:]:
+            return True
+        if n.startswith("status_") and f in n:
+            return True
+    return False
+
+
 def run_soft_file(client: GrblTcpClient, path: Path) -> CaseResult:
     """
     Soft stream: record ok/error per line but never fail the hard suite.
@@ -280,7 +301,11 @@ def run_soft_file(client: GrblTcpClient, path: Path) -> CaseResult:
         # cap soft files to avoid long hangs
         if len(results) >= 80:
             break
+    err_samples = [lr for lr in results if not lr.ok][:5]
+    sample_s = "; ".join(f"{lr.line!r}->{lr.detail}" for lr in err_samples)
     detail = f"ok_lines={n_ok} err_lines={n_err} streamed={len(results)}"
+    if sample_s:
+        detail += f" | first_errs: {sample_s}"
     # soft always passed=True for gate; detail carries divergence signal
     return CaseResult(name=name, kind="soft", passed=True, detail=detail, lines=results)
 
@@ -329,9 +354,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         action="store_true",
         help="Also run grblHAL_validator on pass/*.nc after TCP cases",
     )
+    ap.add_argument(
+        "--only",
+        default="",
+        help="Comma-separated case name/stem filters (pass/fail/status/soft)",
+    )
+    ap.add_argument(
+        "--list-cases",
+        action="store_true",
+        help="List case names and exit",
+    )
     args = ap.parse_args(list(argv) if argv is not None else None)
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    only_f = _only_filters(getattr(args, "only", "") or "")
+    if getattr(args, "list_cases", False):
+        for label, paths in (
+            ("pass", collect_pass_files()),
+            ("fail", collect_fail_files()),
+            ("status", collect_status_files()),
+            ("soft", collect_soft_files()),
+        ):
+            for path in paths:
+                print(f"{label}	{path.stem}	{path.name}")
+        return 0
     cases: List[CaseResult] = []
     sim_proc: Optional[subprocess.Popen] = None
 
@@ -415,20 +461,35 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return 2
 
         for nc in collect_pass_files():
+            if not _name_matches(nc.name, only_f) and not _name_matches(nc.stem, only_f):
+                continue
             print(f"running pass: {nc.name} ...")
             cases.append(run_pass_file(client, nc))
 
         for js in collect_fail_files():
+            if not _name_matches(js.stem, only_f) and not _name_matches(js.name, only_f):
+                continue
             print(f"running fail: {js.name} ...")
             cases.append(run_fail_script(client, js))
 
         for st in collect_status_files():
+            # status JSON has "name" field; match stem too
+            if not _name_matches(st.stem, only_f) and not _name_matches(st.name, only_f):
+                # also allow status_* names from JSON after run — prefilter by stem
+                try:
+                    jn = json.loads(st.read_text(encoding="utf-8")).get("name") or ""
+                except Exception:
+                    jn = ""
+                if not _name_matches(str(jn), only_f):
+                    continue
             print(f"running status: {st.name} ...")
             cr = run_fail_script(client, st)
             cr.kind = "pass"  # hard status assertions
             cases.append(cr)
 
         for sf in collect_soft_files():
+            if not _name_matches(sf.name, only_f) and not _name_matches(f"soft:{sf.name}", only_f):
+                continue
             print(f"running soft: {sf.name} ...")
             cases.append(run_soft_file(client, sf))
 
@@ -469,6 +530,38 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     report_path = RESULTS_DIR / "last_report.json"
     report_path.write_text(json.dumps([asdict(c) for c in cases], indent=2), encoding="utf-8")
     print(f"wrote {report_path}")
+    # soft divergence summary for agents (never affects exit code)
+    soft_cases = [c for c in cases if c.kind == "soft"]
+    div = {
+        "suite": "soft_divergence",
+        "files": [],
+        "total_err_lines": 0,
+        "high_divergence": [],
+    }
+    for c in soft_cases:
+        # parse ok_lines=N err_lines=M from detail
+        n_ok, n_err = 0, 0
+        import re as _re
+        m = _re.search(r"ok_lines=(\d+)\s+err_lines=(\d+)", c.detail or "")
+        if m:
+            n_ok, n_err = int(m.group(1)), int(m.group(2))
+        entry = {
+            "name": c.name,
+            "ok_lines": n_ok,
+            "err_lines": n_err,
+            "detail": c.detail,
+        }
+        div["files"].append(entry)
+        div["total_err_lines"] += n_err
+        if n_err > 0 and (n_ok + n_err) > 0 and n_err / (n_ok + n_err) >= 0.5:
+            div["high_divergence"].append(c.name)
+    soft_path = RESULTS_DIR / "soft_divergence.json"
+    soft_path.write_text(
+        json.dumps(div, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    print(f"wrote {soft_path} (err_lines={div['total_err_lines']})")
+    if div["high_divergence"]:
+        print("SOFT_HIGH_DIVERGENCE:", ", ".join(div["high_divergence"]))
     return code
 
 

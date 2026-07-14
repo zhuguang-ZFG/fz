@@ -220,6 +220,16 @@ def pick_profile(
     return "standard"
 
 
+def _load_soft_div() -> Any:
+    p = FZ_ROOT / "protocol_sim" / "results" / "soft_divergence.json"
+    if not p.is_file():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
 def _failed_case_names(report_path: Path, limit: int = 8) -> List[str]:
     if not report_path.is_file():
         return []
@@ -280,8 +290,31 @@ def agent_hints_for_failures(layers: List[Layer]) -> List[str]:
             )
     if not hints:
         hints.append("No hard failures.")
+    # soft divergence (informational)
+    soft_path = FZ_ROOT / "protocol_sim" / "results" / "soft_divergence.json"
+    if soft_path.is_file():
+        try:
+            soft = json.loads(soft_path.read_text(encoding="utf-8"))
+            high = soft.get("high_divergence") or []
+            if high:
+                hints.append(
+                    "Soft product-sample divergence (not hard fail): "
+                    + ", ".join(high)
+                    + " — see protocol_sim/results/soft_divergence.json"
+                )
+            elif int(soft.get("total_err_lines") or 0) > 0:
+                hints.append(
+                    f"Soft streams had {soft.get('total_err_lines')} err lines "
+                    "(informational; host SIL still green if hard passed)."
+                )
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
     hints.append(
         "Host SIL ≠ product paper/BT. Do not claim G3b from this gate alone."
+    )
+    hints.append(
+        "Fast rerun: python scripts/sim_rerun.py --from-last   "
+        "or --protocol NAME --hardware NAME"
     )
     return hints
 
@@ -533,8 +566,12 @@ def _finish(
             "recheck_standard": "python scripts/agent_gate.py --profile standard",
             "protocol_only": "python protocol_sim/run_regression.py --start-sim",
             "hardware_only": "python hardware_sim/run_hw_sim.py --start-sim",
+            "rerun_failed": "python scripts/sim_rerun.py --from-last",
+            "list_failures": "python scripts/sim_rerun.py --list",
+            "soft_divergence": "protocol_sim/results/soft_divergence.json",
             "with_board": "python scripts/hil_to_gate.py --port COMx",
         },
+        "soft_divergence": _load_soft_div(),
         "report_path": str(
             json_out if json_out.is_absolute() else FZ_ROOT / json_out
         ),
