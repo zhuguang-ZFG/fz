@@ -42,6 +42,8 @@ FZ_ROOT = ROOT.parent
 CASES = ROOT / "cases"
 PASS_DIR = CASES / "pass"
 FAIL_DIR = CASES / "fail"
+SOFT_DIR = CASES / "soft"
+STATUS_DIR = CASES / "status"
 RESULTS_DIR = ROOT / "results"
 # Optional product firmware tree (env GRBL_ROOT) for soft repo tests
 _GRBL = os.environ.get("GRBL_ROOT", "")
@@ -160,9 +162,24 @@ def run_fail_script(client: GrblTcpClient, path: Path) -> CaseResult:
             ok = kind == "ok"
         elif expect == "status":
             ok = kind in ("status", "ok")
+        elif expect == "any":
+            ok = True
         else:
             ok = False
             detail = f"unknown expect={expect}"
+        joined = "\n".join(resp)
+        contains = step.get("contains")
+        if contains is not None and ok:
+            need = contains if isinstance(contains, list) else [contains]
+            ok = all(str(c) in joined for c in need)
+            if not ok:
+                detail = f"step {send!r}: missing contains {need} in {resp}"
+        contains_any = step.get("contains_any")
+        if contains_any is not None and ok:
+            opts = contains_any if isinstance(contains_any, list) else [contains_any]
+            ok = any(str(c) in joined for c in opts)
+            if not ok:
+                detail = f"step {send!r}: none of contains_any {opts} in {resp}"
         if not ok and not detail:
             want = f"{expect}:{allowed}" if allowed else expect
             detail = f"step {send!r}: want {want}, got {kind}:{got_code} resp={resp}"
@@ -212,6 +229,62 @@ def collect_fail_files() -> List[Path]:
     return sorted(FAIL_DIR.glob("*.json"))
 
 
+def collect_soft_files() -> List[Path]:
+    if not SOFT_DIR.is_dir():
+        return []
+    return sorted(SOFT_DIR.glob("*.nc"))
+
+
+def collect_status_files() -> List[Path]:
+    if not STATUS_DIR.is_dir():
+        return []
+    return sorted(STATUS_DIR.glob("*.json"))
+
+
+def run_soft_file(client: GrblTcpClient, path: Path) -> CaseResult:
+    """
+    Soft stream: record ok/error per line but never fail the hard suite.
+    Used for product-tree samples that may diverge from grblHAL.
+    """
+    name = f"soft:{path.name}"
+    results: List[LineResult] = []
+    client.soft_reset()
+    client.unlock_if_needed()
+    n_err = 0
+    n_ok = 0
+    text = path.read_text(encoding="utf-8", errors="replace")
+    for raw in text.splitlines():
+        if is_comment_or_blank(raw):
+            continue
+        line = raw.strip()
+        # skip product ESP commands
+        if line.upper().startswith("[ESP"):
+            continue
+        wait = 4.0 if re.match(r"(?i)^[GM]\d", line) else 1.2
+        resp = client.send_line(line, wait=wait)
+        kind, code = classify_responses(resp)
+        line_ok = kind == "ok"
+        if kind in ("error", "alarm"):
+            n_err += 1
+            line_ok = False
+        elif kind == "ok":
+            n_ok += 1
+        results.append(
+            LineResult(
+                line=line,
+                responses=list(resp),
+                ok=line_ok,
+                detail="" if line_ok else f"{kind}:{code}",
+            )
+        )
+        # cap soft files to avoid long hangs
+        if len(results) >= 80:
+            break
+    detail = f"ok_lines={n_ok} err_lines={n_err} streamed={len(results)}"
+    # soft always passed=True for gate; detail carries divergence signal
+    return CaseResult(name=name, kind="soft", passed=True, detail=detail, lines=results)
+
+
 def print_report(cases: Sequence[CaseResult]) -> int:
     hard = [c for c in cases if c.kind != "soft"]
     soft = [c for c in cases if c.kind == "soft"]
@@ -220,7 +293,8 @@ def print_report(cases: Sequence[CaseResult]) -> int:
     print("=== sim_regression report ===")
     for c in cases:
         mark = "PASS" if c.passed else "FAIL"
-        print(f"  [{mark}] ({c.kind}) {c.name}" + (f" — {c.detail}" if c.detail and not c.passed else ""))
+        show_detail = c.detail and (not c.passed or c.kind == "soft")
+        print(f"  [{mark}] ({c.kind}) {c.name}" + (f" — {c.detail}" if show_detail else ""))
     print(f"hard: {len(hard) - len(failed)}/{len(hard)} passed; soft: {len(soft)}")
     if failed:
         print("FAILED cases:")
@@ -243,7 +317,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument(
         "--include-repo-tests",
         action="store_true",
-        help="Also stream a few Grbl_Esp32/src/tests/*.nc as soft checks",
+        help="Stream GRBL_ROOT Grbl_Esp32/src/tests samples as soft (never hard-fail)",
     )
     ap.add_argument(
         "--start-sim",
@@ -348,15 +422,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(f"running fail: {js.name} ...")
             cases.append(run_fail_script(client, js))
 
+        for st in collect_status_files():
+            print(f"running status: {st.name} ...")
+            cr = run_fail_script(client, st)
+            cr.kind = "pass"  # hard status assertions
+            cases.append(cr)
+
+        for sf in collect_soft_files():
+            print(f"running soft: {sf.name} ...")
+            cases.append(run_soft_file(client, sf))
+
         if args.include_repo_tests and REPO_TESTS.is_dir():
-            for name in ("parsetest.nc", "user_io.nc"):
+            # Product tree samples — soft only (may use M62/ESP/custom)
+            for name in (
+                "parsetest.nc",
+                "spindle_testing.nc",
+                "user_io.nc",
+            ):
                 p = REPO_TESTS / name
                 if p.is_file():
                     print(f"soft repo test: {name} ...")
-                    cr = run_pass_file(client, p)
-                    cr.kind = "soft"
-                    # soft: never fail the suite alone
-                    cases.append(cr)
+                    cases.append(run_soft_file(client, p))
 
         # Optional offline validator (can hang on some Windows path-arg builds)
         if args.with_validator and validator:

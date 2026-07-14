@@ -1,0 +1,13 @@
+{
+  "name": "status_I_build_info",
+  "notes": "Grbl $I build info — community sender handshake",
+  "setup": [],
+  "steps": [
+    {
+      "send": "$I",
+      "expect": "status",
+      "contains_any": ["VER:", "OPT:", "AXS:", "NEWOPT:", "N/A", "grbl", "Grbl", "HAL"],
+      "wait": 2.0
+    }
+  ]
+}

@@ -10,6 +10,9 @@ From repo root `fz/`:
 
 ```powershell
 python protocol_sim/run_regression.py --start-sim
+# soft product samples + hard $G/$I status pack included by default
+$env:GRBL_ROOT='D:\Users\Grbl_Esp32'
+python protocol_sim/run_regression.py --start-sim --include-repo-tests
 ```
 
 Defaults to `vendor/grblhal_sim/bin/grblHAL_sim.exe` if `GRBLHAL_SIM` unset.
@@ -19,9 +22,16 @@ Defaults to `vendor/grblhal_sim/bin/grblHAL_sim.exe` if `GRBLHAL_SIM` unset.
 - `cases/pass/*.nc` — expect ok  
 - `cases/fail/*.json` — expect error codes  
 
-Expanded fail set (community CAM / Grbl error surface): bad number, modal conflict, undefined feed, unsupported G/M, arc missing offset (e35), arc radius (e33), G1 no target.
+| Dir | Role |
+|-----|------|
+| `cases/pass/*.nc` | hard ok |
+| `cases/fail/*.json` | hard error codes |
+| `cases/status/*.json` | hard `$I`/`$G`/`?`/`$#` contains_any |
+| `cases/soft/*.nc` | soft product-like streams (never hard-fail gate) |
 
-Pass set: smoke, arcs, rapid box, dwell, N-words/spindle, G20/G21, $C dry-run, coolant words. 
+Fail set (community CAM): bad number, modal, undefined feed, unsupported G/M, arc e35/e34, G1 no target.  
+Pass: smoke, arcs, rapid box, dwell, N-words, G20/G21, $C dry-run, coolant.  
+`--include-repo-tests`: soft-stream `GRBL_ROOT/.../src/tests/{parsetest,spindle_testing,user_io}.nc`. 
 
 ## Design
 

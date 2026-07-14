@@ -1,0 +1,12 @@
+{
+  "name": "status_realtime_query",
+  "setup": ["G21", "G90"],
+  "steps": [
+    {
+      "send": "?",
+      "expect": "status",
+      "contains_any": ["Idle", "Run", "Hold", "Alarm", "MPos:", "WPos:", "Bf:"],
+      "wait": 1.5
+    }
+  ]
+}

@@ -385,6 +385,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         str(FZ_ROOT / "protocol_sim" / "run_regression.py"),
         "--start-sim",
     ]
+    # When GRBL_ROOT is set, also soft-stream product src/tests samples
+    if grbl is not None:
+        proto_cmd.append("--include-repo-tests")
     code, dur = _run(proto_cmd)
     if code == 2:
         print("AGENT_GATE: protocol exit 2 — retry once after 1s", flush=True)

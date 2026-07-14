@@ -1,0 +1,12 @@
+{
+  "name": "status_hash_params",
+  "setup": [],
+  "steps": [
+    {
+      "send": "$#",
+      "expect": "status",
+      "contains_any": ["G54:", "G55:", "G28:", "G30:", "G92:", "TLO:", "PRB:"],
+      "wait": 3.0
+    }
+  ]
+}
