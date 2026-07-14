@@ -14,6 +14,10 @@ on:
         description: Run agent_gate --profile standard (slower, thorough)
         type: boolean
         default: false
+      run_linux_quick:
+        description: Optional Linux build+gate (R32 parked; not default)
+        type: boolean
+        default: false
 
 jobs:
   # R28: on weekly schedule only run standard (avoid paying for quick+standard).
@@ -67,9 +71,10 @@ jobs:
             protocol_sim/results/case_schema_last.json
           if-no-files-found: warn
 
-  # R32: Linux host SIL — build grblHAL_sim from upstream, then agent_gate quick
+  # R32 (parked): Linux host SIL — opt-in only (low ROI vs Windows vendored sim).
+  # Enable via workflow_dispatch → run_linux_quick, not on every push/PR.
   agent-gate-quick-linux:
-    if: ${{ github.event_name != 'schedule' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_linux_quick == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:

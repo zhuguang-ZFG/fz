@@ -12,7 +12,12 @@
 - No VPS login, no password storage
 - Self-hosted runner registration is operator-side
 
+## Product decision (follow-up)
+
+**Parked:** Linux job no longer on push/PR (low ROI). Opt-in via `run_linux_quick` dispatch only.  
+Daily path remains Windows `agent_gate` + vendored `.exe`.
+
 ## Gates
 
 Local Windows: existing agent_gate still uses .exe  
-Linux: validated by GitHub Actions after push
+Linux: manual dispatch only

@@ -1,17 +1,20 @@
-# R32 — Linux host SIL CI（推荐路径）
+# R32 — Linux host SIL CI（**parked / 低 ROI**）
 
-**不把 VPS 密码写进仓库。** 本机 Windows 日常门禁不变；Linux 用于 **GitHub CI 可信度** 与可选 **self-hosted runner**。
+**状态（产品决策）：** 日常 **不搞** Linux/VPS 矩阵。主路径 = **Windows vendored sim + `agent_gate`**。  
+脚本与 opt-in CI job **保留**，push/PR **默认不跑** Linux job（省分钟数）。
 
-## 1. 默认：GitHub `ubuntu-latest`（已进 workflow）
+**不把 VPS 密码写进仓库。**
 
-`.github/workflows/host_sil.yml` 的 **`agent-gate-quick-linux`**：
+## 1. 可选：GitHub `ubuntu-latest`（workflow_dispatch only）
+
+Actions → host-sil → Run workflow → 勾选 **`run_linux_quick`**：
 
 1. `apt` 安装 `build-essential` / `cmake` / `git`
 2. `bash scripts/build_grblhal_sim.sh`（克隆 [grblHAL/Simulator](https://github.com/grblHAL/Simulator) → cmake → `vendor/grblhal_sim/bin/grblHAL_sim`）
 3. `python protocol_sim/validate_cases.py`
 4. `python scripts/agent_gate.py --profile quick`
 
-push/PR 上与 Windows quick **并行**。无需你自备 VPS。
+**不**与 push/PR Windows quick 默认并行。
 
 本地 Linux / WSL 同样：
 
