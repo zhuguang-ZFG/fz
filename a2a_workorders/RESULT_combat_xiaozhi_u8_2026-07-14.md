@@ -73,8 +73,16 @@
 ## 建议下一步（可选）
 
 1. 修复/重装 ESP-IDF 5.5.x 与 `export.ps1`，再 `cd esp32S_XYZ && make build-u8`（或 CI 看 `firmware-u8-build`）。  
-2. 开工单：**同步 manager-mobile CI 契约**（5 失败）到 SoftAP 主路径。  
+2. ~~开工单：同步 manager-mobile CI 契约~~ **已修**（见下 follow-up）。  
 3. 装 MinGW 后本地跑 U8 三个 `g++` 单测（与 GH `native-unit-tests` job 对齐）。
+
+## Follow-up: manager-mobile CI 契约（用户同意后已做）
+
+| 项 | 结果 |
+|----|------|
+| 修 `test_manager_mobile_device_info.py` / `privacy_permissions.py` | SoftAP 主通道、无 Blufi 页导入、refresh/starter API、vite 权限 patch |
+| 本地复跑 | **30/30** 两文件；固件向子集+契约 **106 passed** |
+| 推送 | `esp32S_XYZ` main（见该仓 commit） |
 
 ## Honesty
 
