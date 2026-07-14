@@ -1,0 +1,18 @@
+{
+  "id": "json_move_xy5_step_window",
+  "soft_reset": true,
+  "setup": ["G21", "G90", "G94"],
+  "steps": [
+    { "send": "G91", "expect": "ok" },
+    {
+      "send": "G1 X5 Y5 F1200",
+      "expect": "ok",
+      "wait": 25.0,
+      "step_window": true,
+      "expect_travel_mm": [5, 5, 0],
+      "eps_mm": 0.75,
+      "wait_idle": true
+    },
+    { "send": "G90", "expect": "ok" }
+  ]
+}

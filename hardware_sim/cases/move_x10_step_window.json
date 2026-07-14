@@ -1,0 +1,19 @@
+{
+  "id": "json_move_x10_step_window",
+  "notes": "Per-move StepOracle window: max-abs delta across one G1 X10",
+  "soft_reset": true,
+  "setup": ["G21", "G90", "G94"],
+  "steps": [
+    { "send": "G91", "expect": "ok", "wait": 1.0 },
+    {
+      "send": "G1 X10 F1200",
+      "expect": "ok",
+      "wait": 20.0,
+      "step_window": true,
+      "expect_travel_mm": [10, 0, 0],
+      "eps_mm": 0.75,
+      "wait_idle": true
+    },
+    { "send": "G90", "expect": "ok", "wait": 1.0 }
+  ]
+}

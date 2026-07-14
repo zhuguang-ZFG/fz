@@ -15,7 +15,9 @@ from step_oracle import (
     max_abs_steps,
     mm_from_steps,
     parse_step_log,
+    per_move_delta,
     steps_delta,
+    window_travel_steps,
 )
 
 
@@ -56,6 +58,15 @@ class TestStepOracle(unittest.TestCase):
             b.write_text(text2, encoding="utf-8")
             d = steps_delta(parse_step_log(a), parse_step_log(b))
         self.assertEqual(d[0], 2500)
+
+    def test_per_move_and_window(self) -> None:
+        self.assertEqual(per_move_delta((0, 0, 0, 0), (2500, 1250, 0, 0))[1], 1250)
+        text = "    1.0 0, 0, 0, 0\n    1.5 2500, 0, 0, 0\n    2.0 2500, 0, 0, 0\n"
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "w.log"
+            p.write_text(text, encoding="utf-8")
+            s = parse_step_log(p)
+        self.assertEqual(window_travel_steps(s, 1.0, 1.6)[0], 2500)
 
 
 if __name__ == "__main__":

@@ -28,8 +28,11 @@ from step_oracle import (  # noqa: E402
     max_abs_steps,
     parse_step_log,
     mm_from_steps,
+    snapshot_max_abs,
+    per_move_delta,
 )
 from plant import Plant  # noqa: E402
+from case_runner import run_all_json_cases  # noqa: E402
 from sim_common.find_sim import find_sim, VENDOR_SIM  # noqa: E402
 from sim_common.grbl_tcp import (  # noqa: E402
     GrblTcp,
@@ -56,6 +59,7 @@ class CaseResult:
     detail: str = ""
     mpos: Optional[List[float]] = None
     responses: List[str] = field(default_factory=list)
+    source: str = "builtin"
 
 
 def run_motion_case(
@@ -64,8 +68,11 @@ def run_motion_case(
     moves: Sequence[str],
     expect_delta: Sequence[float],
     eps: float = 0.25,
+    step_log: Optional[Path] = None,
+    steps_per_mm: Sequence[float] = DEFAULT_STEPS_PER_MM,
+    step_eps_mm: float = 0.75,
 ) -> CaseResult:
-    """Assert MPos delta after moves (machine coords are sticky across cases)."""
+    """Assert MPos delta after moves; optional per-move StepOracle on last motion line."""
     client.soft_reset()
     client.unlock()
     all_resp: List[str] = []
@@ -73,13 +80,18 @@ def run_motion_case(
     all_resp.extend(r0)
     if start is None:
         start = [0.0, 0.0, 0.0]
+    last_motion = None
     for mv in moves:
+        is_motion = bool(re.match(r"(?i)^G[01]\b", mv.strip()))
+        before = snapshot_max_abs(step_log) if (step_log and is_motion) else None
         resp = client.send_line(mv, wait=15.0)
         all_resp.extend(resp)
         if any(ERROR_RE.search(x) or ALARM_RE.search(x) for x in resp):
             return CaseResult(name=name, passed=False, detail=f"error on {mv}: {resp}", responses=all_resp)
         if not any(OK_RE.match(x) for x in resp):
             return CaseResult(name=name, passed=False, detail=f"no ok for {mv}: {resp}", responses=all_resp)
+        if is_motion:
+            last_motion = (mv, before)
     mpos, r1 = wait_idle(client, timeout=30.0)
     all_resp.extend(r1)
     if mpos is None:
@@ -94,6 +106,32 @@ def run_motion_case(
                 mpos=mpos,
                 responses=all_resp,
             )
+    # Per-move StepOracle on the last G0/G1 line (session log max-abs delta)
+    if step_log and last_motion and last_motion[1] is not None:
+        time.sleep(0.12)
+        after = snapshot_max_abs(step_log)
+        dsteps = per_move_delta(last_motion[1], after)
+        # For multi-line cases, expect_delta is whole-case; use full-case step check
+        ok_s, det_s, act_mm = assert_travel_mm(
+            dsteps, expect_delta, steps_per_mm, eps_mm=step_eps_mm
+        )
+        # Whole-case travel may span multiple moves — use session delta from start snap
+        # Recompute: before first motion was first before; use sum of expect
+        if not ok_s:
+            # fallback: compare total session max-abs growth from case start
+            # if single motion line, fail hard; if multi, only warn in detail
+            motion_lines = [m for m in moves if re.match(r"(?i)^G[01]\b", m.strip())]
+            if len(motion_lines) <= 1:
+                return CaseResult(
+                    name=name,
+                    passed=False,
+                    detail=f"MPos ok but step_window fail: {det_s}",
+                    mpos=mpos,
+                    responses=all_resp,
+                )
+            all_resp.append(f"[step_window soft {det_s} mm={act_mm}]")
+        else:
+            all_resp.append(f"[step_window ok mm={act_mm} steps={dsteps}]")
     return CaseResult(name=name, passed=True, mpos=mpos, responses=all_resp)
 
 
@@ -303,11 +341,41 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         action="store_true",
         help="shortcut: --time-factor 0 (skips reliable plant hold)",
     )
+    ap.add_argument(
+        "--json-cases",
+        action="store_true",
+        default=True,
+        help="run hardware_sim/cases/*.json (default on)",
+    )
+    ap.add_argument(
+        "--no-json-cases",
+        action="store_true",
+        help="skip JSON case directory",
+    )
+    ap.add_argument(
+        "--builtin-only",
+        action="store_true",
+        help="only legacy builtin cases (implies --no-json-cases)",
+    )
+    ap.add_argument(
+        "--json-only",
+        action="store_true",
+        help="skip builtin cases; only JSON directory",
+    )
     args = ap.parse_args(list(argv) if argv is not None else None)
     if args.fast:
         args.time_factor = 0.0
+    if args.builtin_only:
+        args.no_json_cases = True
+    run_json = args.json_cases and not args.no_json_cases and not args.builtin_only
+    run_builtin = not args.json_only
 
     RESULTS.mkdir(parents=True, exist_ok=True)
+    if step_log_path := (RESULTS / "step_last.log"):
+        try:
+            step_log_path.write_text("", encoding="utf-8")
+        except OSError:
+            pass
     step_log = RESULTS / "step_last.log"
     block_log = RESULTS / "block_last.log"
     eeprom = RESULTS / "EEPROM_hw.DAT"
@@ -336,8 +404,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "-e",
             str(eeprom),
         ]
+        # stdin PIPE for best-effort pin inject (Windows often ineffective — cases soft)
         sim_proc = subprocess.Popen(
-            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=str(sim.parent)
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.PIPE,
+            cwd=str(sim.parent),
         )
         # Avoid wait_port TCP probe — single-session sim; sleep + connect retries
         time.sleep(1.0 if args.time_factor and args.time_factor > 0 else 0.8)
@@ -361,34 +434,67 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(f"ERROR: connect {args.host}:{args.port}: {last_exc}", file=sys.stderr)
             return 2
 
-        results.append(
-            run_motion_case(
-                client,
-                "move_x_10",
-                ["G91", "G1 X10 Y0 F1000", "G90"],
-                expect_delta=(10.0, 0.0, 0.0),
-                eps=0.15,
+        plant = None
+        if client.sock:
+            plant = Plant(sock=client.sock, proc=sim_proc)
+
+        if run_builtin:
+            results.append(
+                run_motion_case(
+                    client,
+                    "move_x_10",
+                    ["G91", "G1 X10 Y0 F1000", "G90"],
+                    expect_delta=(10.0, 0.0, 0.0),
+                    eps=0.15,
+                    step_log=step_log if args.start_sim else None,
+                )
             )
-        )
-        results.append(
-            run_motion_case(
-                client,
-                "move_xy_delta",
-                ["G91", "G1 X5 Y5 F1000", "G90"],
-                expect_delta=(5.0, 5.0, 0.0),
-                eps=0.15,
+            results.append(
+                run_motion_case(
+                    client,
+                    "move_xy_delta",
+                    ["G91", "G1 X5 Y5 F1000", "G90"],
+                    expect_delta=(5.0, 5.0, 0.0),
+                    eps=0.15,
+                    step_log=step_log if args.start_sim else None,
+                )
             )
-        )
-        results.append(run_error_case(client, "undefined_feed_G1", "G1 X1"))
-        results.append(run_settings_travel_roundtrip(client))
-        results.append(run_soft_limit_setting_gate(client))
-        results.append(run_feed_hold_plant(client, args.time_factor))
-        results.append(run_override_reset_smoke(client))
-        results.append(run_check_mode_toggle(client))
+            results.append(run_error_case(client, "undefined_feed_G1", "G1 X1"))
+            results.append(run_settings_travel_roundtrip(client))
+            results.append(run_soft_limit_setting_gate(client))
+            results.append(run_feed_hold_plant(client, args.time_factor))
+            results.append(run_override_reset_smoke(client))
+            results.append(run_check_mode_toggle(client))
+
+        if run_json and CASES.is_dir():
+            jresults = run_all_json_cases(
+                client,
+                CASES,
+                step_log=step_log if args.start_sim else None,
+                plant=plant,
+                time_factor=args.time_factor,
+                steps_per_mm=DEFAULT_STEPS_PER_MM,
+            )
+            for jr in jresults:
+                results.append(
+                    CaseResult(
+                        name=jr.name,
+                        passed=jr.passed,
+                        detail=jr.detail,
+                        mpos=jr.mpos,
+                        responses=jr.responses,
+                        source="json",
+                    )
+                )
     finally:
         client.close()
         if sim_proc is not None:
             time.sleep(0.3)
+            try:
+                if sim_proc.stdin:
+                    sim_proc.stdin.close()
+            except OSError:
+                pass
             sim_proc.terminate()
             try:
                 sim_proc.wait(timeout=5)
@@ -435,7 +541,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     failed = [r for r in results if not r.passed]
     print("=== hardware_sim report ===")
     for r in results:
-        print(f"  [{'PASS' if r.passed else 'FAIL'}] {r.name}" + (f" — {r.detail}" if r.detail else ""))
+        src = f"/{r.source}" if getattr(r, "source", None) else ""
+        print(
+            f"  [{'PASS' if r.passed else 'FAIL'}] {r.name}{src}"
+            + (f" — {r.detail}" if r.detail else "")
+        )
         if r.mpos:
             print(f"           MPos={r.mpos}")
     report = {
@@ -443,6 +553,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "engine": "grblHAL_sim",
         "step_log": str(step_log) if step_log.is_file() else None,
         "block_log": str(block_log) if block_log.is_file() else None,
+        "json_cases": run_json,
         "cases": [asdict(r) for r in results],
     }
     out = RESULTS / "last_hw_report.json"

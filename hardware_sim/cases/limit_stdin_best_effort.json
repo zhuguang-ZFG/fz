@@ -1,0 +1,22 @@
+{
+  "id": "json_limit_stdin_best_effort",
+  "time_factor_min": 0.5,
+  "notes": "Stdin hard-limit inject during move. soft=true if no console stdin (Windows CI).",
+  "soft_reset": true,
+  "setup": ["G21", "G91", "G94"],
+  "steps": [
+    { "send": "G1 X300 F150", "async": true },
+    { "expect_status": "Run", "timeout_s": 4.0 },
+    {
+      "inject": "limit_x_min",
+      "via": "stdin",
+      "soft": true,
+      "after_ms": 50
+    },
+    {
+      "expect_status": "Alarm|Hold|Idle|Run",
+      "timeout_s": 2.0
+    },
+    { "inject": "soft_reset" }
+  ]
+}

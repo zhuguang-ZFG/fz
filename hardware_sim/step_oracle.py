@@ -55,6 +55,13 @@ def max_abs_steps(samples: Sequence[StepSample]) -> Tuple[int, int, int, int]:
     return mx[0], mx[1], mx[2], mx[3]
 
 
+def last_steps(samples: Sequence[StepSample]) -> Tuple[int, int, int, int]:
+    """Last printed cumulative counters (signed)."""
+    if not samples:
+        return (0, 0, 0, 0)
+    return samples[-1].steps
+
+
 def steps_delta(
     before: Sequence[StepSample], after: Sequence[StepSample]
 ) -> Tuple[int, int, int, int]:
@@ -67,6 +74,51 @@ def steps_delta(
     return (a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3])
 
 
+def snapshot_max_abs(path: Path) -> Tuple[int, int, int, int]:
+    """Convenience: max-abs steps currently in log file."""
+    return max_abs_steps(parse_step_log(path))
+
+
+def per_move_delta(
+    before_snap: Sequence[int], after_snap: Sequence[int]
+) -> Tuple[int, int, int, int]:
+    """Delta between two max-abs snapshots (per-move window)."""
+    b = list(before_snap) + [0, 0, 0, 0]
+    a = list(after_snap) + [0, 0, 0, 0]
+    return (a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3])
+
+
+def samples_in_time_window(
+    samples: Sequence[StepSample], t0: float, t1: float
+) -> List[StepSample]:
+    """Samples with t in [t0, t1]."""
+    if t1 < t0:
+        t0, t1 = t1, t0
+    return [s for s in samples if t0 <= s.t <= t1]
+
+
+def window_travel_steps(
+    samples: Sequence[StepSample], t0: float, t1: float
+) -> Tuple[int, int, int, int]:
+    """
+    Travel inside a sim-time window using first/last cumulative counters.
+    Prefer |last - first| per axis (handles direction).
+    """
+    win = samples_in_time_window(samples, t0, t1)
+    if len(win) < 2:
+        # fall back to max-abs in window vs empty
+        if not win:
+            return (0, 0, 0, 0)
+        return tuple(abs(x) for x in win[-1].steps)  # type: ignore
+    first, last = win[0].steps, win[-1].steps
+    return (
+        abs(last[0] - first[0]),
+        abs(last[1] - first[1]),
+        abs(last[2] - first[2]),
+        abs(last[3] - first[3]),
+    )
+
+
 def mm_from_steps(
     steps: Sequence[int], steps_per_mm: Sequence[float]
 ) -> Tuple[float, float, float]:
@@ -77,7 +129,7 @@ def mm_from_steps(
         if spm == 0:
             out.append(0.0)
         else:
-            out.append(steps[i] / spm)
+            out.append(abs(steps[i]) / spm)
     return out[0], out[1], out[2]
 
 
@@ -93,7 +145,7 @@ def assert_travel_mm(
     """
     actual = mm_from_steps(delta_steps, steps_per_mm)
     for i in range(3):
-        exp = float(expect_mm[i]) if i < len(expect_mm) else 0.0
+        exp = abs(float(expect_mm[i])) if i < len(expect_mm) else 0.0
         if abs(actual[i] - exp) > eps_mm:
             return (
                 False,

@@ -1,0 +1,13 @@
+{
+  "id": "json_undefined_feed",
+  "soft_reset": true,
+  "setup": ["G21", "G90", "G94"],
+  "steps": [
+    {
+      "send": "G1 X1",
+      "expect": "error",
+      "codes_any": ["22"],
+      "wait": 2.0
+    }
+  ]
+}

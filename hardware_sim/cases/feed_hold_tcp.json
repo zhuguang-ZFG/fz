@@ -1,0 +1,14 @@
+{
+  "id": "json_feed_hold_tcp",
+  "time_factor_min": 0.5,
+  "notes": "TCP ! during slow move; needs -t >= 0.5",
+  "soft_reset": true,
+  "setup": ["G21", "G91", "G94"],
+  "steps": [
+    { "send": "G1 X400 F120", "async": true },
+    { "expect_status": "Run", "timeout_s": 4.0 },
+    { "inject": "feed_hold", "via": "tcp" },
+    { "expect_status": "Hold", "timeout_s": 3.0 },
+    { "inject": "soft_reset" }
+  ]
+}
