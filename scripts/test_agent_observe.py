@@ -31,6 +31,20 @@ class TestAgentObserve(unittest.TestCase):
         self.assertIn("next_actions", data)
         self.assertTrue(len(data["findings"]) >= 1)
         self.assertIn("Agent observe", md.read_text(encoding="utf-8"))
+        self.assertEqual(data.get("version"), 2)
+        self.assertIn("summary", data)
+        self.assertIn("agent_should_prefer_standard", data["summary"])
+
+    def test_fail_without_golden_helper(self) -> None:
+        import importlib.util
+
+        path = FZ / "scripts" / "agent_observe.py"
+        spec = importlib.util.spec_from_file_location("agent_observe", path)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        missing = mod._fail_stems_without_golden()
+        self.assertIsInstance(missing, list)
 
 
 if __name__ == "__main__":

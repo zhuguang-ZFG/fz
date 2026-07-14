@@ -54,6 +54,32 @@ def _finding(
     }
 
 
+def _fail_stems_without_golden() -> List[str]:
+    """R39: fail cases that lack a matching golden_* contract (coverage gap)."""
+    fail_dir = FZ_ROOT / "protocol_sim" / "cases" / "fail"
+    gold_dir = FZ_ROOT / "protocol_sim" / "cases" / "golden"
+    if not fail_dir.is_dir():
+        return []
+    gold_text = " ".join(p.stem.lower() for p in gold_dir.glob("*.json")) if gold_dir.is_dir() else ""
+    missing: List[str] = []
+    for p in sorted(fail_dir.glob("*.json")):
+        stem = p.stem.lower()
+        # match if golden name contains stem tokens or reverse
+        tokens = [t for t in stem.replace("-", "_").split("_") if len(t) > 2]
+        hit = stem in gold_text or any(t in gold_text for t in tokens[:3])
+        # also check JSON name field loosely
+        if not hit:
+            try:
+                nm = str(json.loads(p.read_text(encoding="utf-8")).get("name") or "").lower()
+            except (OSError, json.JSONDecodeError):
+                nm = ""
+            if nm and (nm in gold_text or any(t in gold_text for t in nm.replace("-", "_").split("_") if len(t) > 3)):
+                hit = True
+        if not hit:
+            missing.append(p.name)
+    return missing
+
+
 def build_observe() -> Dict[str, Any]:
     gate = _read_json(RESULTS / "agent_gate_last.json") or {}
     soft = _read_json(FZ_ROOT / "protocol_sim" / "results" / "soft_divergence.json") or {}
@@ -69,6 +95,10 @@ def build_observe() -> Dict[str, Any]:
     findings: List[Dict[str, Any]] = []
     overall = gate.get("overall_status") if isinstance(gate, dict) else None
     profile = gate.get("profile") if isinstance(gate, dict) else None
+    touch = gate.get("touch") if isinstance(gate, dict) else {}
+    if not isinstance(touch, dict):
+        touch = {}
+    duration_s = gate.get("duration_s") if isinstance(gate, dict) else None
 
     # --- hard failures ---
     for L in (gate.get("failures") if isinstance(gate, dict) else None) or []:
@@ -233,6 +263,113 @@ def build_observe() -> Dict[str, Any]:
             )
         )
 
+    # --- R39: touch / layer skips / golden coverage gaps ---
+    if touch.get("motion_planner") and profile == "quick":
+        findings.append(
+            _finding(
+                "soft",
+                "touch_profile",
+                "git touch suggests motion/planner but profile=quick",
+                detail=str(touch),
+                action="python scripts/agent_gate.py --profile standard",
+                refs=["results/agent_gate_last.json"],
+            )
+        )
+    if touch.get("product_custom") and overall == "pass":
+        findings.append(
+            _finding(
+                "soft",
+                "touch_hil",
+                "product custom/paper/BT paths touched — host SIL cannot close HIL",
+                detail=str(touch),
+                action="python scripts/hil_to_gate.py --port COMx  # or honesty --allow-pending-hil",
+                refs=["docs/AGENT_VIBE_CODING.md", "hil/README.md"],
+            )
+        )
+    if touch.get("protocol_surface") and overall == "pass":
+        findings.append(
+            _finding(
+                "info",
+                "touch",
+                "protocol surface touched — keep golden/fail packs green",
+                detail="rerun after parser edits",
+                action="python scripts/agent_gate.py --profile quick",
+                refs=["protocol_sim/cases/"],
+            )
+        )
+
+    skipped = []
+    if isinstance(gate, dict):
+        for L in gate.get("layers") or []:
+            if isinstance(L, dict) and L.get("status") == "skip":
+                skipped.append(str(L.get("id") or L.get("name")))
+    if skipped:
+        findings.append(
+            _finding(
+                "info",
+                "layers_skipped",
+                f"skipped layers: {', '.join(skipped)}",
+                detail="not a failure — know what was not exercised",
+                action="python scripts/agent_gate.py --profile standard"
+                if "hardware" in skipped
+                else "",
+                refs=["results/agent_gate_last.json"],
+            )
+        )
+
+    if isinstance(duration_s, (int, float)) and duration_s > 180:
+        findings.append(
+            _finding(
+                "optimize",
+                "perf",
+                f"gate took {duration_s:.0f}s — prefer sim_rerun for single-case fixes",
+                detail="full quick can exceed 2min with large case packs",
+                action="python scripts/sim_rerun.py --from-last",
+                refs=["scripts/sim_rerun.py"],
+            )
+        )
+
+    missing_gold = _fail_stems_without_golden()
+    if missing_gold:
+        findings.append(
+            _finding(
+                "optimize",
+                "golden_coverage",
+                f"{len(missing_gold)} fail case(s) without clear golden twin",
+                detail=", ".join(missing_gold[:8])
+                + ("…" if len(missing_gold) > 8 else ""),
+                action=(
+                    "python scripts/golden_record.py --from-case protocol_sim/cases/fail/NAME.json"
+                ),
+                refs=["scripts/golden_record.py", "protocol_sim/cases/fail/"],
+            )
+        )
+
+    hil_logs = FZ_ROOT / "results" / "hil_logs"
+    hil_n = len(list(hil_logs.glob("*.log"))) if hil_logs.is_dir() else 0
+    if hil_n == 0:
+        findings.append(
+            _finding(
+                "info",
+                "hil_logs",
+                "no HIL serial archives yet (results/hil_logs empty)",
+                detail="expected when developing without a board",
+                action="python scripts/hil_to_gate.py --port COMx  # when board available",
+                refs=["hil/README.md"],
+            )
+        )
+    else:
+        findings.append(
+            _finding(
+                "info",
+                "hil_logs",
+                f"HIL serial archives present: {hil_n} log file(s)",
+                detail="use for g3 evidence paths",
+                action="results/hil_log_index.md",
+                refs=["results/hil_log_index.md"],
+            )
+        )
+
     # optimize suggestions (always, non-blocking)
     findings.append(
         _finding(
@@ -269,6 +406,16 @@ def build_observe() -> Dict[str, Any]:
     )
     findings.append(
         _finding(
+            "optimize",
+            "observe",
+            "re-run observe after manual case edits without full gate",
+            detail="cheap signal refresh",
+            action="python scripts/agent_observe.py",
+            refs=["scripts/agent_observe.py"],
+        )
+    )
+    findings.append(
+        _finding(
             "info",
             "hil_boundary",
             "host SIL cannot prove paper/BT/OTA",
@@ -297,15 +444,22 @@ def build_observe() -> Dict[str, Any]:
 
     return {
         "suite": "agent_observe",
-        "version": 1,
+        "version": 2,
         "overall_status": overall,
         "profile": profile,
+        "touch": touch,
+        "duration_s": duration_s,
         "summary": {
             "hard_findings": hard_n,
             "soft_findings": soft_n,
             "info_findings": sum(1 for f in findings if f["severity"] == "info"),
             "optimize_findings": sum(1 for f in findings if f["severity"] == "optimize"),
             "agent_should_block_done_claim": hard_n > 0 or overall == "fail",
+            "agent_should_prefer_standard": bool(
+                touch.get("motion_planner") or touch.get("product_custom")
+            )
+            and profile == "quick",
+            "fail_without_golden": missing_gold[:20] if missing_gold else [],
         },
         "findings": findings,
         "next_actions": next_actions[:12],

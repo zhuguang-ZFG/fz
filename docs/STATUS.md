@@ -42,6 +42,7 @@ Last updated: 2026-07-14
 | R36 | HIL serial log archive + index | **done** | `hil/archive_serial_log.py` + hil_to_gate --port |
 | R37 | PC-only fail pack expand (no HIL) | **done** | +6 hard fail + soft CAM + goldens |
 | R38 | Agent observe surface (always-on) | **done** | `agent_observe.py` + gate integration |
+| R39 | Observe v2: touch/gaps/loop | **done** | touch profile, golden gaps, agent_loop |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 

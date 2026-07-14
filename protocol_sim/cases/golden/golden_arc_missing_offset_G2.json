@@ -1,0 +1,24 @@
+{
+  "name": "golden_arc_missing_offset_G2",
+  "setup": [
+    "G21",
+    "G90",
+    "G17",
+    "G0 X0 Y0"
+  ],
+  "steps": [
+    {
+      "send": "G2 X10 Y0 F100",
+      "expect": "error",
+      "codes": [
+        "35",
+        "33",
+        "22",
+        "2",
+        "3"
+      ],
+      "wait": 2.0
+    }
+  ],
+  "notes": "R23 recorded from protocol_sim/cases/fail/arc_missing_offset.json"
+}

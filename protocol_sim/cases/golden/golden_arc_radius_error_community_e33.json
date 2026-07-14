@@ -1,0 +1,24 @@
+{
+  "name": "golden_arc_radius_error_community_e33",
+  "notes": "R23 recorded from protocol_sim/cases/fail/arc_radius_error.json",
+  "setup": [
+    "G21",
+    "G90",
+    "G17",
+    "G0 X0 Y0"
+  ],
+  "steps": [
+    {
+      "send": "G2 X10 Y0 R1 F100",
+      "expect": "error",
+      "codes": [
+        "33",
+        "34",
+        "35",
+        "2",
+        "22"
+      ],
+      "wait": 2.0
+    }
+  ]
+}
