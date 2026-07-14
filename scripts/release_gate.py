@@ -479,26 +479,69 @@ def run_g3_status(bundle: Path, scope: Dict[str, Any], g3_evidence: Optional[Pat
     return result
 
 
-def run_g4_placeholder(bundle: Path, scope: Dict[str, Any]) -> Dict[str, Any]:
+def run_g4_ota(bundle: Path, scope: Dict[str, Any], g4_evidence: Optional[Path]) -> Dict[str, Any]:
     features = scope.get("features") or {}
-    if features.get("ota"):
-        result = {
-            "layer": "G4",
-            "status": "unknown",
-            "note": "OTA in scope but automated G4 not implemented",
-        }
-    else:
+    if not features.get("ota"):
         result = {
             "layer": "G4",
             "status": "skipped_no_ota",
             "note": "features.ota is false",
         }
+        _write_json(bundle / "g4_ota.json", result)
+        return result
+
+    if not g4_evidence or not g4_evidence.is_file():
+        result = {
+            "layer": "G4",
+            "status": "unknown",
+            "note": "features.ota true but --g4-evidence not provided",
+            "template": "release/g4_ota.template.yaml",
+        }
+        _write_json(bundle / "g4_ota.json", result)
+        return result
+
+    dest = bundle / "g4_ota_evidence.yaml"
+    shutil.copy2(g4_evidence, dest)
+    try:
+        from g4_ota import validate_g4_evidence
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from g4_ota import validate_g4_evidence  # type: ignore
+    status, report = validate_g4_evidence(
+        g4_evidence, features if isinstance(features, dict) else {}
+    )
+    result = {
+        "layer": "G4",
+        "status": status,
+        "note": "validated OTA evidence" if status == "pass" else "OTA evidence validation failed",
+        "evidence": dest.name,
+        "validation": report,
+    }
     _write_json(bundle / "g4_ota.json", result)
     return result
 
 
+def _find_firmware_bin(grbl_root: Optional[Path]) -> Optional[Path]:
+    if not grbl_root:
+        return None
+    candidates = [
+        grbl_root / ".pio" / "build" / "release" / "firmware.bin",
+        grbl_root / ".pio" / "build" / "release" / "Grbl_Esp32.bin",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c
+    build_dir = grbl_root / ".pio" / "build" / "release"
+    if build_dir.is_dir():
+        bins = sorted(build_dir.glob("*.bin"))
+        if bins:
+            return bins[0]
+    return None
+
+
 def run_g5_meta(bundle: Path, scope: Dict[str, Any], grbl_root: Optional[Path]) -> Dict[str, Any]:
     sim = FZ_ROOT / "vendor" / "grblhal_sim" / "bin" / "grblHAL_sim.exe"
+    fw = _find_firmware_bin(grbl_root)
     result = {
         "layer": "G5",
         "status": "pass",
@@ -507,6 +550,8 @@ def run_g5_meta(bundle: Path, scope: Dict[str, Any], grbl_root: Optional[Path]) 
         "grbl_git_sha": _git_sha(grbl_root) if grbl_root else scope.get("grbl_git_sha") or "unknown",
         "sim_engine": "grblHAL_sim",
         "sim_binary_sha256_16": _file_sha256(sim),
+        "firmware_bin_path": str(fw) if fw else None,
+        "firmware_bin_sha256_16": _file_sha256(fw) if fw else None,
         "scope_version": scope.get("version"),
         "features": scope.get("features"),
         "blockers_open": scope.get("blockers_open") or [],
@@ -516,10 +561,10 @@ def run_g5_meta(bundle: Path, scope: Dict[str, Any], grbl_root: Optional[Path]) 
     if result["blockers_open"]:
         result["status"] = "fail"
         result["warnings"].append("blockers_open must be empty to ship")
-    # Soft security notes
     result["security_notes"] = [
         "Product authentication may be weak/cleartext — document residual risk in SIGN_OFF",
         "Do not commit real Wi-Fi credentials",
+        "grblHAL_sim green is not product firmware verification",
     ]
     _write_json(bundle / "g5_security_meta.json", result)
     return result
@@ -680,6 +725,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         help="path to filled g3_evidence YAML (preferred) or checklist md",
     )
     ap.add_argument(
+        "--g4-evidence",
+        type=Path,
+        default=None,
+        help="path to filled g4_ota evidence YAML when features.ota",
+    )
+    ap.add_argument(
         "--g0-mode",
         choices=("default", "machines", "test_drive"),
         default="default",
@@ -756,7 +807,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if "G4" in only:
         print("=== G4 OTA ===")
-        layers["G4"] = run_g4_placeholder(bundle, scope)
+        g4_path = args.g4_evidence
+        if g4_path and not g4_path.is_absolute():
+            g4_path = Path.cwd() / g4_path
+        layers["G4"] = run_g4_ota(bundle, scope, g4_path)
 
     if "G5" in only:
         print("=== G5 meta ===")

@@ -24,15 +24,20 @@ fz/
   scripts/              # 构建/一键入口
 ```
 
-## 设计文档（必读）
+## 状态与设计
 
-0. [**上线前固件缺陷门禁**](docs/specs/2026-07-14-pre-release-firmware-defect-gate-design.md) — **核心目标：上线前挖净范围内固件问题**（G0–G5 + 签字）  
-1. [硬件仿真优化](docs/specs/2026-07-14-hardware-sim-optimization-design.md) — 步进日志、I/O 植物、软限位（门禁 **G1**）  
-2. [软件全链路 SIL](docs/specs/2026-07-14-software-fullchain-sim-design.md) — 契约 / 金样 / FakeDevice（门禁 **G2**）  
-3. [**A2A 工作流**](docs/specs/2026-07-14-a2a-sim-release-workflow-design.md) — Reasonix/Atom/Claude 提效与双审；**gate 由 Kimi 重跑**  
+- **[实现状态 STATUS](docs/STATUS.md)** — R0–R5 完成矩阵  
+- [上线前固件缺陷门禁](docs/specs/2026-07-14-pre-release-firmware-defect-gate-design.md)  
+- [硬件仿真优化](docs/specs/2026-07-14-hardware-sim-optimization-design.md)  
+- [软件全链路 SIL](docs/specs/2026-07-14-software-fullchain-sim-design.md)  
+- [A2A 工作流](docs/specs/2026-07-14-a2a-sim-release-workflow-design.md)  
 
-术语：主路径是 **SIL 主机仿真 + 上线真硅清单**，不是芯片全真孪生。  
-A2A 工单模板：`a2a_workorders/TEMPLATE.md`。
+```powershell
+# 一键自动化冒烟（默认无真机）
+python scripts/full_release_smoke.py
+```
+
+术语：主路径是 **SIL 主机仿真 + 上线真硅清单**，不是芯片全真孪生。
 
 ---
 

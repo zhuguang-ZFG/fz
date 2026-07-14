@@ -297,12 +297,12 @@ release/bundles/<version>/
 
 | 阶段 | 交付 | 挖问题能力 | 建议 A2A risk |
 |------|------|------------|---------------|
-| **R0** | 本 design + `release_scope` 模板 + SIGN_OFF + A2A 工单模板 | 流程 | Kimi |
-| **R1** | `release_gate.py` 编排：G0 调 pio、G1 调 protocol_sim | 构建+协议 | **med** |
-| **R2** | hardware_sim WP-H1/H2/H4 接入 G1 | 运动/限位 | **med**（可并行 case） |
-| **R3** | `hil/` 串口脚本 G3a + checklist 电子化 G3b | **产品真问题** | **high** |
-| **R4** | G2 调 QWEN pytest 契约 | 云 | **med** |
-| **R5** | G4/G5 自动化与 hash | 发布完整 | **high**（安全） |
+| **R0** | 本 design + `release_scope` 模板 + SIGN_OFF + A2A 工单模板 | 流程 | **done** |
+| **R1** | `release_gate.py` 编排：G0 调 pio、G1 调 protocol_sim | 构建+协议 | **done** |
+| **R2** | hardware_sim WP-H1/H2/H4 接入 G1 | 运动/限位 | **done** |
+| **R3** | `hil/` 串口脚本 G3a + checklist 电子化 G3b | **产品真问题** | **done**（G3b 仍需人工填证据） |
+| **R4** | G2 调 QWEN pytest 契约 | 云 | **done** |
+| **R5** | G4/G5 自动化与 hash | 发布完整 | **done**（OTA 为证据清单，非真刷） |
 
 **上线「尽量全部」的关键路径：R1 + R3 不可省；R2 强烈；R4 视 scope。**  
 **A2A：** 详见 [a2a-sim-release-workflow](./2026-07-14-a2a-sim-release-workflow-design.md)；并行仅限无冲突 paths。

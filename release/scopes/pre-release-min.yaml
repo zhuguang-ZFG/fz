@@ -1,0 +1,12 @@
+# Automated pre-release smoke (no silicon / paper / OTA / cloud by default)
+version: "pre-release-min"
+features:
+  paper_path: false
+  bluetooth: false
+  wifi_web: false
+  ota: false
+  cloud_qwen: false
+machines:
+  - test_drive
+blockers_open: []
+waivers: []

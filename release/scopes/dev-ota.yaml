@@ -1,0 +1,11 @@
+version: "dev-ota"
+features:
+  paper_path: false
+  bluetooth: false
+  wifi_web: false
+  ota: true
+  cloud_qwen: false
+machines:
+  - test_drive
+blockers_open: []
+waivers: []

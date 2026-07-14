@@ -1,0 +1,37 @@
+# G4 OTA evidence — fill when features.ota=true
+# result: pass | fail | skip | na  (skip needs note with "waive" if ota in scope)
+
+version: "product-YYYYMMDD"
+operator: ""
+date: ""
+grbl_git_sha: ""
+from_version: ""
+to_version: ""
+artifact_sha256_16: ""
+
+items:
+  - id: ota.enabled_in_product
+    title: "OTA/web update enabled and intended for this release"
+    result: skip
+    note: ""
+    evidence: ""
+  - id: ota.old_to_new_success
+    title: "At least one old→new OTA or documented multi-round success"
+    result: skip
+    note: ""
+    evidence: ""
+  - id: ota.version_matches_artifact
+    title: "$I / web version matches release artifact"
+    result: skip
+    note: ""
+    evidence: ""
+  - id: ota.failure_recovery_documented
+    title: "Failure/power-loss recovery or brick conditions documented"
+    result: skip
+    note: ""
+    evidence: ""
+  - id: ota.usb_fallback_ok
+    title: "USB/esptool fallback flash works if OTA fails"
+    result: skip
+    note: ""
+    evidence: ""

@@ -1,0 +1,33 @@
+version: "dev-sample-ota"
+operator: "ci-sample"
+date: "2026-07-14"
+from_version: "n/a"
+to_version: "n/a"
+artifact_sha256_16: "deadbeefdeadbeef"
+
+items:
+  - id: ota.enabled_in_product
+    title: "OTA enabled"
+    result: pass
+    note: "sample tooling only"
+    evidence: "n/a"
+  - id: ota.old_to_new_success
+    title: "old to new"
+    result: pass
+    note: "sample"
+    evidence: "n/a"
+  - id: ota.version_matches_artifact
+    title: "version match"
+    result: pass
+    note: "sample"
+    evidence: "n/a"
+  - id: ota.failure_recovery_documented
+    title: "recovery docs"
+    result: pass
+    note: "sample"
+    evidence: "n/a"
+  - id: ota.usb_fallback_ok
+    title: "usb fallback"
+    result: pass
+    note: "sample"
+    evidence: "n/a"
