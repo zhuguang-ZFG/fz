@@ -235,13 +235,41 @@ def main(argv: Optional[List[str]] = None) -> int:
         for s in steps
         if s.get("result") != "na"
     )
+    # R36: full transcript from session buffer
+    log_meta: Dict[str, Any] = {}
+    try:
+        from archive_serial_log import archive_text  # type: ignore
+
+        raw = "\n".join(sess.log) if getattr(sess, "log", None) else ""
+        for s in steps:
+            sn = s.get("snippet") or ""
+            if sn and sn not in raw:
+                raw += f"\n--- {s.get('id')} ---\n{sn}"
+        log_meta = archive_text(
+            raw,
+            kind="g3b_paper_m30",
+            port=args.port,
+            extra={"status": "fail" if hard_fail else "pass"},
+        )
+        # put path into evidence patches when empty-ish
+        log_path = str(log_meta.get("log_path") or "")
+        for p in steps_to_g3_yaml_items(steps):
+            if log_path and not (p.get("evidence") or "").strip():
+                p["evidence"] = log_path
+    except Exception as exc:  # noqa: BLE001
+        log_meta = {"error": str(exc)}
+
     report = {
         "layer": "G3b",
         "status": "fail" if hard_fail else "pass",
         "port": args.port,
         "steps": steps,
         "g3_item_patches": steps_to_g3_yaml_items(steps),
-        "note": "Scriptable paper log checks only; keys/SEG still manual in g3_evidence YAML",
+        "serial_log": log_meta,
+        "note": (
+            "Scriptable paper log checks only; keys/SEG still manual in g3_evidence YAML. "
+            "Full transcript: serial_log.log_path (R36)."
+        ),
     }
     text = json.dumps(report, indent=2, ensure_ascii=False)
     if args.out:

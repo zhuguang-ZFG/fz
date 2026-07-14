@@ -51,7 +51,8 @@ python scripts/agent_gate.py
    ```  
 4. soft 分歧（产品样本 vs grblHAL，不硬红）：`protocol_sim/results/soft_divergence.json`  
 5. 金样 / 假绿探测：`protocol_sim/results/golden_last.json`、`integrity_inject_last.json`  
-6. **不要**为了「看串口」去烧录排 parser/error 类问题（host SIL log ≠ 纸路串口 log）
+6. **不要**为了「看串口」去烧录排 parser/error 类问题（host SIL log ≠ 纸路串口 log）  
+7. **有板时（R36）：** `python scripts/hil_to_gate.py --port COMx` → 读 `results/hil_log_index.md` + `results/hil_logs/*.log`；把路径填进 g3 `evidence`
 
 ```powershell
 # R19 单独重跑

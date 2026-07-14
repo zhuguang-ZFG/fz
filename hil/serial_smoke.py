@@ -32,6 +32,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
 
     steps: List[Dict[str, Any]] = []
+    transcript: List[str] = []
     ok = True
     ser = None
     try:
@@ -42,12 +43,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         ser.write(b"\x18")
         time.sleep(1.5)
         boot = ser.read(4096).decode("utf-8", errors="replace")
+        transcript.append(f"--- soft_reset ---\n{boot}")
         steps.append({"step": "soft_reset", "ok": True, "snippet": boot[-400:]})
 
         def cmd(line: str, wait: float = 0.8) -> str:
             ser.write((line + "\n").encode("utf-8"))
             time.sleep(wait)
-            return ser.read(4096).decode("utf-8", errors="replace")
+            resp = ser.read(4096).decode("utf-8", errors="replace")
+            transcript.append(f">>> {line}\n{resp}")
+            return resp
 
         r = cmd("$X")
         steps.append({"step": "$X", "ok": "ok" in r.lower() or "error" not in r.lower(), "snippet": r[-200:]})
@@ -63,6 +67,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     except Exception as exc:
         ok = False
         steps.append({"step": "exception", "ok": False, "snippet": str(exc)})
+        transcript.append(f"--- exception ---\n{exc}")
     finally:
         if ser is not None:
             try:
@@ -70,13 +75,27 @@ def main(argv: Optional[List[str]] = None) -> int:
             except Exception:
                 pass
 
+    log_meta: Dict[str, Any] = {}
+    try:
+        from archive_serial_log import archive_text  # type: ignore
+
+        log_meta = archive_text(
+            "\n".join(transcript),
+            kind="g3a_serial_smoke",
+            port=args.port,
+            extra={"status": "pass" if ok else "fail"},
+        )
+    except Exception as exc:  # noqa: BLE001
+        log_meta = {"error": str(exc)}
+
     report = {
         "layer": "G3a",
         "status": "pass" if ok else "fail",
         "port": args.port,
         "baud": args.baud,
         "steps": steps,
-        "note": "G3a only — not paper/BT product acceptance",
+        "serial_log": log_meta,
+        "note": "G3a only — not paper/BT product acceptance; see serial_log.log_path",
     }
     text = json.dumps(report, indent=2, ensure_ascii=False)
     if args.out:

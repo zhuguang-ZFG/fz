@@ -19,6 +19,7 @@ Does not claim product paper/BT without operator YAML fill for remaining items.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -147,6 +148,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
 
     # --- on-board path ---
+    # R36: G3a serial smoke + archived transcript, then G3b paper sequences
+    g3a_json = results / "g3a_serial.json"
+    g3a_cmd = [
+        sys.executable,
+        str(FZ_ROOT / "hil" / "serial_smoke.py"),
+        "--port",
+        args.port,
+        "--baud",
+        str(args.baud),
+        "--out",
+        str(g3a_json),
+    ]
+    rc_a = _run(g3a_cmd)
+    if rc_a != 0:
+        print("WARN: serial_smoke (G3a) exit", rc_a, file=sys.stderr)
+
     g3_json = results / "g3b_paper.json"
     g3_yaml = results / "g3_evidence.filled.yaml"
     paper_cmd = [
@@ -168,6 +185,27 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not g3_json.is_file():
         print("ERROR: missing", g3_json, file=sys.stderr)
         return rc or 1
+
+    # R36: index log paths for operators/agents
+    try:
+        sys.path.insert(0, str(FZ_ROOT / "hil"))
+        from archive_serial_log import write_session_index  # type: ignore
+
+        entries = []
+        for p in (g3a_json, g3_json):
+            if not p.is_file():
+                continue
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            sl = data.get("serial_log") if isinstance(data, dict) else None
+            if isinstance(sl, dict) and sl.get("log_path"):
+                entries.append(sl)
+        write_session_index(entries)
+        print("R36 hil log index: results/hil_log_index.md")
+    except Exception as exc:  # noqa: BLE001
+        print("WARN: hil log index skip", exc, file=sys.stderr)
 
     rc_m = _run(
         [

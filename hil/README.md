@@ -7,6 +7,7 @@ Community: [Golioth HIL](https://blog.golioth.io/golioth-hil-testing-part1/) (se
 ```powershell
 pip install pyserial
 python hil/serial_smoke.py --port COM7 --out results/g3a.json
+# R36: full transcript also under results/hil_logs/*_g3a_serial_smoke_*.log
 ```
 
 ## G3b — paper / M30 serial sequences
@@ -50,6 +51,18 @@ python scripts/release_gate.py --scope release/scopes/dev-ota.yaml --skip-g0 `
   --g4-evidence release/g4_ota.filled.yaml --only G4,G5
 ```
 
+## R36 — serial log archive (有板必做)
+
+Community: HIL CI keeps **serial logs as evidence**, not only pass/fail JSON.
+
+| Output | Meaning |
+|--------|---------|
+| `results/hil_logs/<utc>_<kind>_<port>.log` | full transcript |
+| `results/hil_logs/*.meta.json` | path + bytes |
+| `results/hil_log_index.md` | one-page index after `hil_to_gate --port` |
+
+Host SIL failures still use `results/triage_last.md` (R34) — different stack.
+
 ## One-click HIL → gate
 
 ```powershell
@@ -57,7 +70,8 @@ python scripts/release_gate.py --scope release/scopes/dev-ota.yaml --skip-g0 `
 python scripts/hil_to_gate.py
 python scripts/hil_to_gate.py --skip-smoke
 
-# board: paper M30 serial → merge g3 → release_gate G1,G3,G5
+# board: G3a smoke + G3b paper M30 + log archive → merge g3 → release_gate
+
 python scripts/hil_to_gate.py --port COM7
 # test_drive without paper logs:
 python scripts/hil_to_gate.py --port COM7 --no-expect-paper-log

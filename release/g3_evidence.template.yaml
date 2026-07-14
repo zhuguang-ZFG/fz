@@ -24,7 +24,7 @@ items:
     title: "Serial 115200 boot banner / machine name"
     result: pass
     note: ""
-    evidence: ""
+    evidence: ""   # R36: prefer results/hil_logs/*_g3a_*.log path after hil_to_gate --port
   - id: g3a.ident
     title: "$I or $$ responds"
     result: pass
