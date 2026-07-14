@@ -754,16 +754,35 @@ def _finish(
             "rerun_failed": "python scripts/sim_rerun.py --from-last",
             "list_failures": "python scripts/sim_rerun.py --list",
             "soft_divergence": "protocol_sim/results/soft_divergence.json",
+            "triage": "python scripts/sim_log_triage.py",
             "with_board": "python scripts/hil_to_gate.py --port COMx",
         },
         "soft_divergence": _load_soft_div(),
         "report_path": str(
             json_out if json_out.is_absolute() else FZ_ROOT / json_out
         ),
+        "triage_md": str(FZ_ROOT / "results" / "triage_last.md"),
+        "log_paths": [
+            str(FZ_ROOT / "results" / "agent_gate_last.json"),
+            str(FZ_ROOT / "results" / "triage_last.md"),
+            str(FZ_ROOT / "protocol_sim" / "results" / "last_report.json"),
+            str(FZ_ROOT / "hardware_sim" / "results" / "last_hw_report.json"),
+        ],
     }
     out = json_out if json_out.is_absolute() else FZ_ROOT / json_out
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    # R34: always refresh one-page triage after gate report is on disk
+    try:
+        sys.path.insert(0, str(FZ_ROOT / "scripts"))
+        from sim_log_triage import print_fail_slices, write_triage  # type: ignore
+
+        triage = write_triage()
+        print(f"triage: {FZ_ROOT / 'results' / 'triage_last.md'}", flush=True)
+    except Exception as exc:  # noqa: BLE001
+        triage = None
+        print(f"AGENT_GATE: triage skip ({exc})", flush=True)
 
     print("\n=== agent_gate ===", flush=True)
     for x in layers:
@@ -786,8 +805,15 @@ def _finish(
             flush=True,
         )
     else:
+        # R35: auto-print failed case slices (community readable CI failures)
+        if triage is not None:
+            try:
+                print_fail_slices(triage)
+            except Exception as exc:  # noqa: BLE001
+                print(f"AGENT_GATE: fail slices skip ({exc})", flush=True)
         print(
-            "AGENT_NEXT: fix failures above using agent_hints; "
+            "AGENT_NEXT: read results/triage_last.md + agent_hints; "
+            "python scripts/sim_rerun.py --from-last; "
             "do NOT flash board until protocol/hardware pass "
             "(unless debugging silicon-only).",
             flush=True,
@@ -810,8 +836,9 @@ COMMAND (from any cwd if FZ_ROOT set):
   # or: python scripts/agent_gate.py --profile quick|standard|deep|firmware
 
 READ on failure:
+  D:\\Users\\zhugu\\fz\\results\\triage_last.md          (R34 one-page)
   D:\\Users\\zhugu\\fz\\results\\agent_gate_last.json
-  → failures[], agent_hints[], next_commands
+  → failures[], agent_hints[], fail slices printed on red (R35)
 
 DO NOT:
   - Skip gate and burn firmware to "see if it works" for parser/motion bugs

@@ -37,6 +37,8 @@ Last updated: 2026-07-14
 | R28 | CI hygiene: schedule skips quick (Claude residual) | **done** | `host_sil.yml` if event != schedule |
 | R33 | protocol JSON case structural check | **done** | `protocol_sim/validate_cases.py` in gate+CI |
 | R32 | Linux host SIL CI (build sim + gate) | **parked** | scripts/job kept; **not** on push/PR (low ROI) |
+| R34 | sim log triage one-page | **done** | `scripts/sim_log_triage.py` → `results/triage_last.md` |
+| R35 | gate red auto fail-slice print | **done** | `agent_gate` `_finish` on overall≠0 |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 

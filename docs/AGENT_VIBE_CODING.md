@@ -40,16 +40,18 @@ python scripts/agent_gate.py
 
 ### 失败时
 
-1. 读 `results/agent_gate_last.json` → `failures` + `agent_hints`  
-2. **只重跑失败用例（快）：**  
+1. **先读一页 triage（R34）：** `results/triage_last.md`（gate 结束总会写；红时 stdout 还有 **FAIL SLICES** R35）  
+2. 读 `results/agent_gate_last.json` → `failures` + `agent_hints`  
+3. **只重跑失败用例（快）：**  
    ```powershell
+   python scripts/sim_log_triage.py          # 单独刷新 triage
    python scripts/sim_rerun.py --from-last
    python scripts/sim_rerun.py --list
    python scripts/sim_rerun.py --protocol undefined_feed --hardware move_x_10
    ```  
-3. soft 分歧（产品样本 vs grblHAL，不硬红）：`protocol_sim/results/soft_divergence.json`  
-4. 金样 / 假绿探测：`protocol_sim/results/golden_last.json`、`integrity_inject_last.json`  
-5. **不要**为了「看串口」去烧录排 parser/error 类问题  
+4. soft 分歧（产品样本 vs grblHAL，不硬红）：`protocol_sim/results/soft_divergence.json`  
+5. 金样 / 假绿探测：`protocol_sim/results/golden_last.json`、`integrity_inject_last.json`  
+6. **不要**为了「看串口」去烧录排 parser/error 类问题（host SIL log ≠ 纸路串口 log）
 
 ```powershell
 # R19 单独重跑
