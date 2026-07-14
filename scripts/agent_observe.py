@@ -153,8 +153,15 @@ def build_observe() -> Dict[str, Any]:
                 "product_divergence",
                 f"soft high divergence: {name}",
                 detail="Product sample vs grblHAL host SIL — not hard gate fail",
-                action="see protocol_sim/results/soft_divergence.json; fix product or allowlist",
-                refs=["protocol_sim/results/soft_divergence.json", "protocol_sim/cases/soft/allowlist.yaml"],
+                action=(
+                    "read docs/PRODUCT_SOFT_DIVERGENCE.md (R42 A/C); "
+                    "do not gut M62/parser only for sim; see soft_divergence.json"
+                ),
+                refs=[
+                    "docs/PRODUCT_SOFT_DIVERGENCE.md",
+                    "protocol_sim/results/soft_divergence.json",
+                    "protocol_sim/cases/soft/allowlist.yaml",
+                ],
             )
         )
     total_err = int(soft.get("total_err_lines") or 0) if isinstance(soft, dict) else 0
@@ -165,8 +172,8 @@ def build_observe() -> Dict[str, Any]:
                 "product_divergence",
                 f"soft streams had {total_err} err lines",
                 detail="Informational; hard suite may still be green",
-                action="python scripts/sim_log_triage.py",
-                refs=["protocol_sim/results/soft_divergence.json"],
+                action="docs/PRODUCT_SOFT_DIVERGENCE.md + python scripts/sim_log_triage.py",
+                refs=["docs/PRODUCT_SOFT_DIVERGENCE.md", "protocol_sim/results/soft_divergence.json"],
             )
         )
 

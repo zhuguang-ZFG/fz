@@ -35,6 +35,8 @@ fz/
 - [多源调研 GH/官方/知乎/Gitee/论坛](docs/specs/2026-07-14-multi-source-sim-research.md)  
 - [社区 ESP 模拟文 vs 官方纠偏](docs/specs/2026-07-14-community-esp-sim-vs-official.md)  
 - [Agent 装备清单 AGENT_SURFACE](docs/AGENT_SURFACE.md)  
+- [产品 soft 分歧策略 PRODUCT_SOFT_DIVERGENCE](docs/PRODUCT_SOFT_DIVERGENCE.md)  
+
 
 
 

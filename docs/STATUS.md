@@ -45,6 +45,7 @@ Last updated: 2026-07-14
 | R39 | Observe v2: touch/gaps/loop | **done** | touch profile, golden gaps, agent_loop |
 | R40 | Observe v3: soft radar + hw stats | **done** | per-soft-file + last_hw_report + CI arts |
 | R41 | Agent surface one-pager (装备清单) | **done** | `docs/AGENT_SURFACE.md` |
+| R42 | Product soft divergence policy A/C | **done** | `docs/PRODUCT_SOFT_DIVERGENCE.md` |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 

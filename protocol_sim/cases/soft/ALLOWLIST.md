@@ -3,7 +3,10 @@
 Soft cases (`cases/soft/*.nc` and `--include-repo-tests`) **never hard-fail** the protocol suite.
 They record ok/error divergence for agents (`results/soft_divergence.json`).
 
-**Machine check (R24):** `protocol_sim/cases/soft/allowlist.yaml`  
+**Policy (R42 strategy A/C):** see **`docs/PRODUCT_SOFT_DIVERGENCE.md`**.
+
+**Machine check (R24):** `protocol_sim/cases/soft/allowlist.yaml`
+
 ```powershell
 python scripts/soft_allowlist.py
 # report: protocol_sim/results/soft_allowlist_last.json
@@ -12,15 +15,15 @@ python scripts/soft_allowlist.py
 
 ## Expected high-divergence product samples
 
-| Sample | Why host SIL diverges | Action |
-|--------|----------------------|--------|
-| `user_io.nc` | Product `M62`/`M63` digital IO / custom | Document; do not promote to hard pass |
-| `parsetest.nc` / `parsetest_comments` | Inline comments / product parser quirks → often `error:25` | Soft only; fix product or accept |
-| `spindle_testing.nc` | Spindle words / timing vs sim plant | Soft; motion hard cases elsewhere |
+| Sample | Why host SIL diverges | Action (R42) |
+|--------|----------------------|--------------|
+| `user_io.nc` | Product `M62`/`M63`/`M67` | **HIL/product only** — do not remove features for sim |
+| `parsetest.nc` / `parsetest_comments` | Inline comments / glued axes → often `error:25` on sim | **Dialect radar** — document; optional fix tests if product also rejects |
+| `spindle_testing.nc` | Spindle + comments | Soft; low priority |
 
 ## Rules
 
-1. **Do not** convert product custom G/M to hard `cases/pass` without a golden that matches **grblHAL sim** or an explicit product-sim profile.
-2. Soft high_divergence is a **signal**, not a ship block on quick — pair with honesty / HIL for paper/BT.
-3. Golden hard cases live in `cases/golden/` — only stable grblHAL-compatible contracts.
-4. **R23 record goldens:** `python scripts/golden_record.py --from-last --kinds fail --only undefined_feed`
+1. **Do not** convert product custom G/M to hard `cases/pass` without grblHAL-compatible golden.
+2. Soft high_divergence is a **signal**, not a ship block on quick — honesty may WARN.
+3. Golden hard cases stay grblHAL-compatible only.
+4. **Do not** rewrite product parser solely to silence soft (unless product HIL also fails and goal is strict Grbl compat).

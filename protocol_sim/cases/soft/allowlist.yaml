@@ -1,23 +1,28 @@
-# R24: machine-check soft stream divergence allowlist
+# R24/R42: machine-check soft stream divergence allowlist
 # high_divergence from soft_divergence.json is OK only if matched here.
+# Policy: docs/PRODUCT_SOFT_DIVERGENCE.md (strategy A/C — do not gut product features for sim)
 version: 1
-# Ratio used by protocol runner for high_divergence flag (>= 0.5)
 high_ratio_threshold: 0.5
-# Unlisted soft files: if high_divergence and not matched → unknown
+policy_doc: docs/PRODUCT_SOFT_DIVERGENCE.md
 entries:
   - match: parsetest_comments
     max_err_ratio: 1.0
     known_error_codes: ["25"]
-    notes: "inline/parenthesis comments vs grblHAL → error:25"
+    notes: "R42 A/C: inline/paren comments + glued axes vs grblHAL → e25; product dialect radar"
   - match: parsetest
     max_err_ratio: 1.0
-    notes: "product src/tests parsetest.nc"
+    known_error_codes: ["25"]
+    notes: "R42 A/C: GRBL_ROOT src/tests/parsetest.nc — same dialect radar; not hard gate"
   - match: user_io
     max_err_ratio: 1.0
-    notes: "M62/M63 product IO"
+    known_error_codes: ["20"]
+    notes: "R42: M62/M63/M67 product IO — HIL only; sim e20 expected"
   - match: spindle_testing
     max_err_ratio: 0.8
-    notes: "product spindle sample"
+    notes: "product spindle sample; optional comment noise"
   - match: spindle_cam
     max_err_ratio: 0.5
     notes: "soft spindle_cam_subset should stay low divergence"
+  - match: cam_percent
+    max_err_ratio: 0.5
+    notes: "CAM % markers soft stream"
