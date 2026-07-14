@@ -1,0 +1,13 @@
+{
+  "name": "inject_wrong_contains_I",
+  "notes": "R19 integrity: $I must not match impossible contains token",
+  "setup": [],
+  "steps": [
+    {
+      "send": "$I",
+      "expect": "status",
+      "contains": ["THIS_TOKEN_MUST_NEVER_APPEAR_IN_GRBL_BUILD_INFO_XYZ"],
+      "wait": 2.0
+    }
+  ]
+}

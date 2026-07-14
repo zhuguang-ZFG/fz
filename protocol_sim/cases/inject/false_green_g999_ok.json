@@ -1,0 +1,12 @@
+{
+  "name": "inject_false_green_g999_ok",
+  "notes": "R19 integrity: wrong expect (ok for G999). Must FAIL when executed — proves harness catches false green.",
+  "setup": ["G21"],
+  "steps": [
+    {
+      "send": "G999",
+      "expect": "ok",
+      "wait": 2.0
+    }
+  ]
+}

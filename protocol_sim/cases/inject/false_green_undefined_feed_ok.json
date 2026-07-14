@@ -1,0 +1,12 @@
+{
+  "name": "inject_false_green_feed_ok",
+  "notes": "R19 integrity: G1 without F must NOT be accepted as ok",
+  "setup": ["G21", "G90", "G94", "G17", "G0 X0 Y0 Z5"],
+  "steps": [
+    {
+      "send": "G1 X1 Y0",
+      "expect": "ok",
+      "wait": 2.0
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "golden_query_status",
+  "notes": "R19 gold: realtime ? reports status line",
+  "setup": ["G21", "G90"],
+  "steps": [
+    {
+      "send": "?",
+      "expect": "status",
+      "contains_any": ["Idle", "Run", "Hold", "Alarm", "Home", "Check", "Door", "MPos", "WPos", "|"],
+      "wait": 2.0
+    }
+  ]
+}

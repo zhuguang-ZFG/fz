@@ -1,0 +1,22 @@
+{
+  "name": "golden_check_mode",
+  "notes": "R19 gold: $C check mode accepts G0 then can exit",
+  "setup": ["G21", "G90"],
+  "steps": [
+    {
+      "send": "$C",
+      "expect": "ok",
+      "wait": 2.0
+    },
+    {
+      "send": "G0 X1",
+      "expect": "ok",
+      "wait": 2.0
+    },
+    {
+      "send": "$C",
+      "expect": "ok",
+      "wait": 2.0
+    }
+  ]
+}

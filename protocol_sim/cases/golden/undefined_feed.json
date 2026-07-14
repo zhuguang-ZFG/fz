@@ -1,0 +1,13 @@
+{
+  "name": "golden_undefined_feed",
+  "notes": "R19 gold: G1 without F must error:22 (community/grbl classic)",
+  "setup": ["G21", "G90", "G94", "G17", "G0 X0 Y0 Z5"],
+  "steps": [
+    {
+      "send": "G1 X1 Y0",
+      "expect": "error",
+      "code": "22",
+      "wait": 2.0
+    }
+  ]
+}

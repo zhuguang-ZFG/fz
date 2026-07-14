@@ -1,0 +1,13 @@
+{
+  "name": "golden_status_G",
+  "notes": "R19 gold: $G reports modal state after G21/G90/G0",
+  "setup": ["G21", "G90", "G94", "G0 X0 Y0"],
+  "steps": [
+    {
+      "send": "$G",
+      "expect": "status",
+      "contains_any": ["G0", "G1", "G21", "G90", "G94", "G17", "M5", "T0", "F", "S"],
+      "wait": 2.0
+    }
+  ]
+}

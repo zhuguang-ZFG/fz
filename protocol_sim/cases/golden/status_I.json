@@ -1,0 +1,13 @@
+{
+  "name": "golden_status_I",
+  "notes": "R19 gold: $I build info contains community handshake tokens",
+  "setup": [],
+  "steps": [
+    {
+      "send": "$I",
+      "expect": "status",
+      "contains_any": ["VER:", "OPT:", "AXS:", "NEWOPT:", "N/A", "grbl", "Grbl", "HAL"],
+      "wait": 2.0
+    }
+  ]
+}

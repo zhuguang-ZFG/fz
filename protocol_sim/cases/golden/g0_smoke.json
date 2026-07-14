@@ -1,0 +1,17 @@
+{
+  "name": "golden_g0_smoke",
+  "notes": "R19 gold: rapid ok after units/modal setup (stable host SIL handshake)",
+  "setup": ["G21", "G90", "G94", "G17"],
+  "steps": [
+    {
+      "send": "G0 X0 Y0 Z5",
+      "expect": "ok",
+      "wait": 3.0
+    },
+    {
+      "send": "G0 X1",
+      "expect": "ok",
+      "wait": 3.0
+    }
+  ]
+}

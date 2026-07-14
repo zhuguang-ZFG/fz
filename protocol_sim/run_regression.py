@@ -44,6 +44,8 @@ PASS_DIR = CASES / "pass"
 FAIL_DIR = CASES / "fail"
 SOFT_DIR = CASES / "soft"
 STATUS_DIR = CASES / "status"
+GOLDEN_DIR = CASES / "golden"
+INJECT_DIR = CASES / "inject"
 RESULTS_DIR = ROOT / "results"
 # Optional product firmware tree (env GRBL_ROOT) for soft repo tests
 _GRBL = os.environ.get("GRBL_ROOT", "")
@@ -70,7 +72,7 @@ class LineResult:
 @dataclass
 class CaseResult:
     name: str
-    kind: str  # pass | fail | soft
+    kind: str  # pass | fail | soft | golden | inject
     passed: bool
     detail: str = ""
     lines: List[LineResult] = field(default_factory=list)
@@ -241,6 +243,18 @@ def collect_status_files() -> List[Path]:
     return sorted(STATUS_DIR.glob("*.json"))
 
 
+def collect_golden_files() -> List[Path]:
+    if not GOLDEN_DIR.is_dir():
+        return []
+    return sorted(GOLDEN_DIR.glob("*.json"))
+
+
+def collect_inject_files() -> List[Path]:
+    """Fault-injection packs: expected to FAIL when run as normal cases."""
+    if not INJECT_DIR.is_dir():
+        return []
+    return sorted(INJECT_DIR.glob("*.json"))
+
 
 def _only_filters(raw: str) -> List[str]:
     return [x.strip().lower() for x in (raw or "").split(",") if x.strip()]
@@ -357,12 +371,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument(
         "--only",
         default="",
-        help="Comma-separated case name/stem filters (pass/fail/status/soft)",
+        help="Comma-separated case name/stem filters (pass/fail/status/soft/golden)",
     )
     ap.add_argument(
         "--list-cases",
         action="store_true",
         help="List case names and exit",
+    )
+    ap.add_argument(
+        "--golden",
+        action="store_true",
+        help="Run only cases/golden/*.json (hard gold contracts)",
+    )
+    ap.add_argument(
+        "--skip-golden",
+        action="store_true",
+        help="Skip golden pack (default includes golden with full suite)",
+    )
+    ap.add_argument(
+        "--integrity-inject",
+        action="store_true",
+        help=(
+            "R19: run cases/inject only; exit 0 iff every inject case FAILS "
+            "(proves harness catches false-green expectations)"
+        ),
     )
     args = ap.parse_args(list(argv) if argv is not None else None)
 
@@ -373,6 +405,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             ("pass", collect_pass_files()),
             ("fail", collect_fail_files()),
             ("status", collect_status_files()),
+            ("golden", collect_golden_files()),
+            ("inject", collect_inject_files()),
             ("soft", collect_soft_files()),
         ):
             for path in paths:
@@ -380,6 +414,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 0
     cases: List[CaseResult] = []
     sim_proc: Optional[subprocess.Popen] = None
+    golden_only = bool(getattr(args, "golden", False))
+    skip_golden = bool(getattr(args, "skip_golden", False))
+    integrity_inject = bool(getattr(args, "integrity_inject", False))
+    if integrity_inject and golden_only:
+        print("ERROR: use either --golden or --integrity-inject, not both", file=sys.stderr)
+        return 3
 
     validator = find_validator()
     if args.validator_only:
@@ -460,63 +500,103 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
             return 2
 
-        for nc in collect_pass_files():
-            if not _name_matches(nc.name, only_f) and not _name_matches(nc.stem, only_f):
-                continue
-            print(f"running pass: {nc.name} ...")
-            cases.append(run_pass_file(client, nc))
-
-        for js in collect_fail_files():
-            if not _name_matches(js.stem, only_f) and not _name_matches(js.name, only_f):
-                continue
-            print(f"running fail: {js.name} ...")
-            cases.append(run_fail_script(client, js))
-
-        for st in collect_status_files():
-            # status JSON has "name" field; match stem too
-            if not _name_matches(st.stem, only_f) and not _name_matches(st.name, only_f):
-                # also allow status_* names from JSON after run — prefilter by stem
-                try:
-                    jn = json.loads(st.read_text(encoding="utf-8")).get("name") or ""
-                except Exception:
-                    jn = ""
-                if not _name_matches(str(jn), only_f):
+        if integrity_inject:
+            # Fault packs must FAIL as normal expectations → integrity pass if all red
+            injects = collect_inject_files()
+            if not injects:
+                print("ERROR: no cases/inject/*.json for --integrity-inject", file=sys.stderr)
+                return 2
+            for inj in injects:
+                if only_f and not (
+                    _name_matches(inj.stem, only_f) or _name_matches(inj.name, only_f)
+                ):
                     continue
-            print(f"running status: {st.name} ...")
-            cr = run_fail_script(client, st)
-            cr.kind = "pass"  # hard status assertions
-            cases.append(cr)
+                print(f"running inject (expect RED): {inj.name} ...")
+                cr = run_fail_script(client, inj)
+                cr.kind = "inject"
+                cases.append(cr)
+        else:
+            if not golden_only:
+                for nc in collect_pass_files():
+                    if not _name_matches(nc.name, only_f) and not _name_matches(
+                        nc.stem, only_f
+                    ):
+                        continue
+                    print(f"running pass: {nc.name} ...")
+                    cases.append(run_pass_file(client, nc))
 
-        for sf in collect_soft_files():
-            if not _name_matches(sf.name, only_f) and not _name_matches(f"soft:{sf.name}", only_f):
-                continue
-            print(f"running soft: {sf.name} ...")
-            cases.append(run_soft_file(client, sf))
+                for js in collect_fail_files():
+                    if not _name_matches(js.stem, only_f) and not _name_matches(
+                        js.name, only_f
+                    ):
+                        continue
+                    print(f"running fail: {js.name} ...")
+                    cases.append(run_fail_script(client, js))
 
-        if args.include_repo_tests and REPO_TESTS.is_dir():
-            # Product tree samples — soft only (may use M62/ESP/custom)
-            for name in (
-                "parsetest.nc",
-                "spindle_testing.nc",
-                "user_io.nc",
-            ):
-                p = REPO_TESTS / name
-                if p.is_file():
-                    print(f"soft repo test: {name} ...")
-                    cases.append(run_soft_file(client, p))
+                for st in collect_status_files():
+                    # status JSON has "name" field; match stem too
+                    if not _name_matches(st.stem, only_f) and not _name_matches(
+                        st.name, only_f
+                    ):
+                        try:
+                            jn = json.loads(st.read_text(encoding="utf-8")).get("name") or ""
+                        except Exception:
+                            jn = ""
+                        if not _name_matches(str(jn), only_f):
+                            continue
+                    print(f"running status: {st.name} ...")
+                    cr = run_fail_script(client, st)
+                    cr.kind = "pass"  # hard status assertions
+                    cases.append(cr)
 
-        # Optional offline validator (can hang on some Windows path-arg builds)
-        if args.with_validator and validator:
-            for nc in collect_pass_files():
-                ok, out = run_validator(nc, validator)
-                cases.append(
-                    CaseResult(
-                        name=f"validator:{nc.name}",
-                        kind="pass",
-                        passed=ok,
-                        detail="" if ok else out[:300],
-                    )
-                )
+            # R19 golden pack: hard contracts (default full suite unless --skip-golden)
+            if golden_only or not skip_golden:
+                for gf in collect_golden_files():
+                    if not _name_matches(gf.stem, only_f) and not _name_matches(
+                        gf.name, only_f
+                    ):
+                        try:
+                            jn = json.loads(gf.read_text(encoding="utf-8")).get("name") or ""
+                        except Exception:
+                            jn = ""
+                        if not _name_matches(str(jn), only_f):
+                            continue
+                    print(f"running golden: {gf.name} ...")
+                    cr = run_fail_script(client, gf)
+                    cr.kind = "golden"
+                    cases.append(cr)
+
+            if not golden_only:
+                for sf in collect_soft_files():
+                    if not _name_matches(sf.name, only_f) and not _name_matches(
+                        f"soft:{sf.name}", only_f
+                    ):
+                        continue
+                    print(f"running soft: {sf.name} ...")
+                    cases.append(run_soft_file(client, sf))
+
+                if args.include_repo_tests and REPO_TESTS.is_dir():
+                    for name in (
+                        "parsetest.nc",
+                        "spindle_testing.nc",
+                        "user_io.nc",
+                    ):
+                        p = REPO_TESTS / name
+                        if p.is_file():
+                            print(f"soft repo test: {name} ...")
+                            cases.append(run_soft_file(client, p))
+
+                if args.with_validator and validator:
+                    for nc in collect_pass_files():
+                        ok, out = run_validator(nc, validator)
+                        cases.append(
+                            CaseResult(
+                                name=f"validator:{nc.name}",
+                                kind="pass",
+                                passed=ok,
+                                detail="" if ok else out[:300],
+                            )
+                        )
     finally:
         client.close()
         if sim_proc is not None:
@@ -526,10 +606,70 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             except subprocess.TimeoutExpired:
                 sim_proc.kill()
 
-    code = print_report(cases)
     report_path = RESULTS_DIR / "last_report.json"
     report_path.write_text(json.dumps([asdict(c) for c in cases], indent=2), encoding="utf-8")
     print(f"wrote {report_path}")
+
+    if integrity_inject:
+        # Invert: inject cases are "false green" scripts — each must fail (passed=False)
+        if not cases:
+            print("INTEGRITY_INJECT: no cases ran", file=sys.stderr)
+            return 1
+        leaked = [c for c in cases if c.passed]
+        red = [c for c in cases if not c.passed]
+        integ = {
+            "suite": "integrity_inject",
+            "passed": len(leaked) == 0 and len(red) > 0,
+            "n": len(cases),
+            "n_red_as_expected": len(red),
+            "n_leaked_false_green": len(leaked),
+            "cases": [
+                {
+                    "name": c.name,
+                    "case_passed_as_normal": c.passed,
+                    "detail": c.detail,
+                    "integrity": "LEAK" if c.passed else "RED_OK",
+                }
+                for c in cases
+            ],
+        }
+        integ_path = RESULTS_DIR / "integrity_inject_last.json"
+        integ_path.write_text(
+            json.dumps(integ, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        print(f"wrote {integ_path}")
+        print(
+            f"INTEGRITY_INJECT: red={len(red)}/{len(cases)} "
+            f"leaked_false_green={len(leaked)}"
+        )
+        if leaked:
+            print("INTEGRITY_FAIL: harness accepted false-green cases:")
+            for c in leaked:
+                print(f"  - {c.name}")
+            return 1
+        print("INTEGRITY_PASS: all inject packs failed as required")
+        return 0
+
+    code = print_report(cases)
+
+    # R19 golden summary (hard; already in exit code via print_report)
+    golden_cases = [c for c in cases if c.kind == "golden"]
+    if golden_cases:
+        gold_rep = {
+            "suite": "golden",
+            "passed": all(c.passed for c in golden_cases),
+            "n": len(golden_cases),
+            "n_fail": sum(1 for c in golden_cases if not c.passed),
+            "cases": [
+                {"name": c.name, "passed": c.passed, "detail": c.detail} for c in golden_cases
+            ],
+        }
+        gold_path = RESULTS_DIR / "golden_last.json"
+        gold_path.write_text(
+            json.dumps(gold_rep, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        print(f"wrote {gold_path} (fail={gold_rep['n_fail']}/{gold_rep['n']})")
+
     # soft divergence summary for agents (never affects exit code)
     soft_cases = [c for c in cases if c.kind == "soft"]
     div = {
@@ -539,7 +679,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "high_divergence": [],
     }
     for c in soft_cases:
-        # parse ok_lines=N err_lines=M from detail
         n_ok, n_err = 0, 0
         import re as _re
         m = _re.search(r"ok_lines=(\d+)\s+err_lines=(\d+)", c.detail or "")

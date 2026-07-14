@@ -27,7 +27,15 @@ Defaults to `vendor/grblhal_sim/bin/grblHAL_sim.exe` if `GRBLHAL_SIM` unset.
 | `cases/pass/*.nc` | hard ok |
 | `cases/fail/*.json` | hard error codes |
 | `cases/status/*.json` | hard `$I`/`$G`/`?`/`$#` contains_any |
+| `cases/golden/*.json` | R19 hard gold contracts (included by default) |
+| `cases/inject/*.json` | R19 false-green packs — only via `--integrity-inject` |
 | `cases/soft/*.nc` | soft product-like streams (never hard-fail gate) |
+
+```powershell
+python protocol_sim/run_regression.py --start-sim --golden
+python protocol_sim/run_regression.py --start-sim --integrity-inject
+# reports: results/golden_last.json , results/integrity_inject_last.json
+```
 
 Fail set (community CAM): bad number, modal, undefined feed, unsupported G/M, arc e35/e34, G1 no target.  
 Pass: smoke, arcs, rapid box, dwell, N-words, G20/G21, $C dry-run, coolant.  

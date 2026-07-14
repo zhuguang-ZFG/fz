@@ -1,0 +1,13 @@
+{
+  "name": "golden_bad_number",
+  "notes": "R19 gold: missing numeric after axis letter → error:2",
+  "setup": ["G21"],
+  "steps": [
+    {
+      "send": "G0 X",
+      "expect": "error",
+      "code": "2",
+      "wait": 2.0
+    }
+  ]
+}

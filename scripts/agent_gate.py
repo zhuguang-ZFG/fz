@@ -278,6 +278,12 @@ def agent_hints_for_failures(layers: List[Layer]) -> List[str]:
             )
         elif L.id == "units":
             hints.append("Fix unit tests under sim_common/hardware_sim/hil/chip_sim.")
+        elif L.id == "integrity":
+            hints.append(
+                "Integrity inject leaked false-green — harness/expect matching broken. "
+                "Read protocol_sim/results/integrity_inject_last.json; "
+                "re-run: python protocol_sim/run_regression.py --start-sim --integrity-inject"
+            )
         elif L.id == "release_smoke":
             hints.append("full_release_smoke failed — open latest release/bundles/*/SUMMARY.md")
         elif L.id == "g0":
@@ -412,7 +418,33 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
     )
 
+    # R19 integrity inject: false-green packs must all go RED (exit 0 = harness OK)
+    integ_cmd = [
+        sys.executable,
+        str(FZ_ROOT / "protocol_sim" / "run_regression.py"),
+        "--start-sim",
+        "--integrity-inject",
+    ]
+    code, dur = _run(integ_cmd)
+    if code == 2:
+        print("AGENT_GATE: integrity exit 2 — retry once after 1s", flush=True)
+        time.sleep(1.0)
+        code2, dur2 = _run(integ_cmd)
+        code, dur = code2, round(dur + dur2, 2)
+    layers.append(
+        Layer(
+            id="integrity",
+            name="inject_false_green_must_red",
+            status="pass" if code == 0 else "fail",
+            exit_code=code,
+            duration_s=dur,
+            log_hint="protocol_sim/results/integrity_inject_last.json",
+            detail="R19: harness must catch false-green expects",
+        )
+    )
+
     # protocol (retry once on preflight/connect flake — common on Windows port races)
+    # includes cases/golden/*.json by default (R19)
     proto_cmd = [
         sys.executable,
         str(FZ_ROOT / "protocol_sim" / "run_regression.py"),
@@ -434,7 +466,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             status="pass" if code == 0 else "fail",
             exit_code=code,
             duration_s=dur,
-            log_hint="protocol_sim/results/last_report.json",
+            log_hint="protocol_sim/results/last_report.json + golden_last.json",
         )
     )
 
@@ -565,6 +597,10 @@ def _finish(
             "recheck_quick": "python scripts/agent_gate.py --profile quick",
             "recheck_standard": "python scripts/agent_gate.py --profile standard",
             "protocol_only": "python protocol_sim/run_regression.py --start-sim",
+            "golden_only": "python protocol_sim/run_regression.py --start-sim --golden",
+            "integrity_inject": (
+                "python protocol_sim/run_regression.py --start-sim --integrity-inject"
+            ),
             "hardware_only": "python hardware_sim/run_hw_sim.py --start-sim",
             "rerun_failed": "python scripts/sim_rerun.py --from-last",
             "list_failures": "python scripts/sim_rerun.py --list",

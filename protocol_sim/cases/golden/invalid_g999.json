@@ -1,0 +1,13 @@
+{
+  "name": "golden_invalid_g999",
+  "notes": "R19 gold: unsupported G word → error (codes vary by build)",
+  "setup": ["G21"],
+  "steps": [
+    {
+      "send": "G999",
+      "expect": "error",
+      "codes": ["20", "2", "3"],
+      "wait": 2.0
+    }
+  ]
+}

@@ -44,7 +44,15 @@ python scripts/agent_gate.py
    python scripts/sim_rerun.py --protocol undefined_feed --hardware move_x_10
    ```  
 3. soft 分歧（产品样本 vs grblHAL，不硬红）：`protocol_sim/results/soft_divergence.json`  
-4. **不要**为了「看串口」去烧录排 parser/error 类问题  
+4. 金样 / 假绿探测：`protocol_sim/results/golden_last.json`、`integrity_inject_last.json`  
+5. **不要**为了「看串口」去烧录排 parser/error 类问题  
+
+```powershell
+# R19 单独重跑
+python protocol_sim/run_regression.py --start-sim --golden
+python protocol_sim/run_regression.py --start-sim --integrity-inject
+python -m unittest scripts.test_gate_integrity -v
+```
 
 ### 绿了也不要说的话
 
