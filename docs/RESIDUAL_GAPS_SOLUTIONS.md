@@ -55,7 +55,26 @@
 
 ---
 
-## 3. 芯片 QEMU 全栈（设计 out of scope）
+## 3. 芯片 QEMU / Wokwi / Renode（有方案，但不是产品硬门禁）
+
+### 社区与官方（确实有）
+
+| 方案 | 链接 | 能做什么 |
+|------|------|----------|
+| **Espressif QEMU** | [IDF 文档](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/tools/qemu.html) · [espressif/qemu](https://github.com/espressif/qemu) | 官方芯片 SIL；Windows 有预构建 |
+| **Wokwi CI** | [docs](https://docs.wokwi.com/wokwi-ci/getting-started) | 板级+串口场景、GitHub Action |
+| **Renode** | [renode.io](https://renode.io/) | 系统级/多节点 |
+| linux.do | 常推 Wokwi 做 ESP 教学仿真 | 验证「有人用」 |
+
+本仓融合：`docs/specs/2026-07-14-opensource-sim-fusion-catalog.md` + `chip_sim/probe_chip_tools.py`。
+
+### 为何仍不进默认硬门禁
+
+Arduino 产品固件 + 纸路/BT/I2S **≠** IDF 示例在 QEMU 上绿；Wi‑Fi/BT 仿真弱；Wokwi 有额度与建模成本。
+
+---
+
+## 3b. 芯片 QEMU 全栈（历史标题）（设计 out of scope）
 
 ### 社区/官方现实
 
@@ -117,7 +136,7 @@
 | P1 | G3b 可脚本部分 | **已有** `hil/paper_m30_serial.py`；一键 `scripts/hil_to_gate.py --port` |
 | P1b | 全 Win 主机仿真 | **已有** `scripts/win_full_sim.py`（L0–L4；非芯片） |
 | P2 | OTA | USB 双版本：`hil_to_gate.py --with-g4`；真 Wi-Fi OTA 仍证据清单 |
-| P3 | QEMU | 维持不做产品门禁 |
+| P3 | QEMU / Wokwi / Renode | **工具存在**；见 fusion catalog + `chip_sim/` 探针；**不做产品硬门禁** |
 
 ---
 

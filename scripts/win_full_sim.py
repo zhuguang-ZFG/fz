@@ -5,15 +5,18 @@ Windows host full-stack SIL (not silicon / not product paper-BT).
 
 Community anchors:
   - grblHAL/Simulator: -p TCP, -s/-b step/block logs, -t time factor, validator
+  - Espressif QEMU / Wokwi / Renode: optional chip-level (chip_sim probe)
   - ioSender/linux.do-style desktop CNC: no board → sim for protocol + planner
   - Golioth/HIL: real board is separate path (hil_to_gate.py)
+  Catalog: docs/specs/2026-07-14-opensource-sim-fusion-catalog.md
 
-Layers (default all on):
+Layers (default L0–L4; L5 optional):
   L0 preflight  — vendor sim binary + runtime DLLs
   L1 protocol   — protocol_sim/run_regression.py --start-sim
   L2 hardware   — hardware_sim/run_hw_sim.py --start-sim
   L3 unit       — step_oracle + hil logic unittest (no board)
   L4 honesty    — product_stubs gaps recorded in report (never auto-pass)
+  L5 chip_probe — inventory qemu/wokwi/renode (soft unless --require-chip-tool)
 
 Exit codes:
   0 all selected layers ok
@@ -191,6 +194,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="pass through to protocol_sim --with-validator",
     )
     ap.add_argument(
+        "--with-chip-probe",
+        action="store_true",
+        help="run chip_sim/probe_chip_tools.py (optional L5; soft by default)",
+    )
+    ap.add_argument(
+        "--require-chip-tool",
+        action="store_true",
+        help="with --with-chip-probe, fail if no qemu/wokwi/renode on PATH",
+    )
+    ap.add_argument(
         "--out",
         type=Path,
         default=None,
@@ -299,7 +312,21 @@ def main(argv: Optional[List[str]] = None) -> int:
             ],
             cwd=str(FZ_ROOT),
         ).returncode
-        code = 0 if code1 == 0 and code2 == 0 else 1
+        code3 = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "chip_sim",
+                "-p",
+                "test_*.py",
+                "-q",
+            ],
+            cwd=str(FZ_ROOT),
+        ).returncode
+        code = 0 if code1 == 0 and code2 == 0 and code3 == 0 else 1
         layers.append(
             LayerResult(
                 id="L3",
@@ -307,7 +334,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 status="pass" if code == 0 else "fail",
                 exit_code=code,
                 duration_s=round(time.time() - t0, 2),
-                detail="hardware_sim + hil unit tests (no serial board)",
+                detail="hardware_sim + hil + chip_sim unit tests (no serial board)",
             )
         )
     else:
@@ -316,6 +343,42 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
 
     layers.append(honesty_layer())
+
+    if args.with_chip_probe:
+        t0 = time.time()
+        chip_cmd = [
+            sys.executable,
+            str(FZ_ROOT / "chip_sim" / "probe_chip_tools.py"),
+            "--firmware-hint",
+        ]
+        if args.require_chip_tool:
+            chip_cmd.append("--require-any")
+        code, dur, _ = run_cmd(chip_cmd, FZ_ROOT)
+        # Soft by default (probe exits 0 without tools); hard only with --require-chip-tool
+        st = "pass" if code == 0 else "fail"
+        layers.append(
+            LayerResult(
+                id="L5",
+                name="chip_sim_probe",
+                status=st,
+                exit_code=code,
+                duration_s=dur if dur else round(time.time() - t0, 2),
+                detail=(
+                    "inventory Espressif QEMU / Wokwi / Renode; "
+                    "not product gate; see fusion catalog"
+                ),
+                artifacts=[str(FZ_ROOT / "results" / "chip_probe.json")],
+            )
+        )
+    else:
+        layers.append(
+            LayerResult(
+                id="L5",
+                name="chip_sim_probe",
+                status="skip",
+                detail="omit --with-chip-probe; host SIL does not need chip tools",
+            )
+        )
 
     hard_fail = any(x.status == "fail" for x in layers)
     return _finish(layers, args.out, overall=1 if hard_fail else 0)
@@ -341,9 +404,14 @@ def _finish(
         "references": [
             "https://github.com/grblHAL/Simulator",
             "https://svn.io-engineering.com:8443/?driver=Simulator",
+            "https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/tools/qemu.html",
+            "https://docs.wokwi.com/wokwi-ci/getting-started",
+            "https://renode.io/",
+            "docs/specs/2026-07-14-opensource-sim-fusion-catalog.md",
             "docs/specs/2026-07-14-hardware-sim-optimization-design.md",
             "docs/specs/2026-07-14-software-fullchain-sim-design.md",
         ],
+        "fusion_catalog": "docs/specs/2026-07-14-opensource-sim-fusion-catalog.md",
     }
     path = out or (RESULTS / "win_full_sim_report.json")
     if not path.is_absolute():

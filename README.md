@@ -31,10 +31,14 @@ fz/
 - [硬件仿真优化](docs/specs/2026-07-14-hardware-sim-optimization-design.md)  
 - [软件全链路 SIL](docs/specs/2026-07-14-software-fullchain-sim-design.md)  
 - [A2A 工作流](docs/specs/2026-07-14-a2a-sim-release-workflow-design.md)  
+- [开源仿真融合目录（含芯片级）](docs/specs/2026-07-14-opensource-sim-fusion-catalog.md) 
 
 ```powershell
 # Windows 全主机 SIL（grblHAL_sim 协议+步进植物+单测；非芯片/非产品纸路）
 python scripts/win_full_sim.py
+# 开源芯片仿真器探测（QEMU/Wokwi/Renode；可选，默认不硬失败）
+python chip_sim/probe_chip_tools.py
+python scripts/win_full_sim.py --with-chip-probe
 # 门禁冒烟（默认无真机）
 python scripts/full_release_smoke.py
 # HIL 证据 → release_gate（无 --port 仅离线；有板再加 COM）

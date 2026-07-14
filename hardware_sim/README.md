@@ -40,3 +40,8 @@ Inject protocol (community grblHAL_sim): `docs/sim_inject_protocol.md`
 Plant helper: `plant.py` (TCP `!`/`~`; stdin keys for console).
 
 Next: probe cycle, limit-pin automation if console stdin available, StepOracle per-move windows.
+
+## Open-source fusion
+
+See `fusion_notes.md` and repo-wide [opensource-sim-fusion-catalog](../docs/specs/2026-07-14-opensource-sim-fusion-catalog.md).  
+Chip-level tools (QEMU/Wokwi/Renode) live under `chip_sim/` — not required for this runner.
