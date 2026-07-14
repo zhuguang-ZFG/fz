@@ -1,0 +1,36 @@
+# Sample filled evidence for tooling tests only — NOT a real HIL run.
+version: "dev-sample"
+operator: "ci-sample"
+date: "2026-07-14"
+round: 1
+board: "none"
+machine: "test_drive"
+firmware_banner: "sample"
+serial_port: ""
+
+items:
+  - id: g3a.flash
+    title: "Flash"
+    result: pass
+    note: "sample"
+    evidence: "n/a sample"
+  - id: g3a.boot
+    title: "Boot"
+    result: pass
+    note: "sample"
+    evidence: "n/a"
+  - id: g3a.ident
+    title: "$I"
+    result: pass
+    note: "sample"
+    evidence: "n/a"
+  - id: g3a.motion
+    title: "motion"
+    result: pass
+    note: "sample"
+    evidence: "n/a"
+  - id: g3a.reset
+    title: "reset"
+    result: pass
+    note: "sample"
+    evidence: "n/a"

@@ -18,6 +18,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -276,8 +277,21 @@ def run_g1_hardware_sim(bundle: Path, port: int) -> Dict[str, Any]:
     return result
 
 
-def run_g0_build(bundle: Path, grbl_root: Optional[Path], machines: Sequence[str]) -> Dict[str, Any]:
-    """Compile product firmware with PlatformIO when GRBL_ROOT is set."""
+def run_g0_build(
+    bundle: Path,
+    grbl_root: Optional[Path],
+    machines: Sequence[str],
+    *,
+    g0_mode: str = "default",
+) -> Dict[str, Any]:
+    """
+    Compile product firmware with PlatformIO when GRBL_ROOT is set.
+
+    g0_mode:
+      default — one `pio run -e release` (Machine.h default)
+      machines — also build each scope machine via MACHINE_FILENAME
+      test_drive — only test_drive.h
+    """
     if grbl_root is None or not grbl_root.is_dir():
         result = {
             "layer": "G0",
@@ -299,11 +313,20 @@ def run_g0_build(bundle: Path, grbl_root: Optional[Path], machines: Sequence[str
 
     builds: List[Dict[str, Any]] = []
     overall = "pass"
-    # Always try default release; optional MACHINE_FILENAME for listed machines
-    targets: List[Tuple[str, Dict[str, str]]] = [("default_release", {})]
-    for m in machines:
-        if m and m != "default":
-            targets.append((m, {"PLATFORMIO_BUILD_FLAGS": f"-DMACHINE_FILENAME={m}.h"}))
+    targets: List[Tuple[str, Dict[str, str]]] = []
+    mode = (g0_mode or "default").lower()
+    if mode == "test_drive":
+        targets.append(("test_drive", {"PLATFORMIO_BUILD_FLAGS": "-DMACHINE_FILENAME=test_drive.h"}))
+    elif mode == "machines":
+        targets.append(("default_release", {}))
+        for m in machines:
+            ms = str(m).strip()
+            if not ms or ms in ("default", "default_release"):
+                continue
+            fn = ms if ms.endswith(".h") else f"{ms}.h"
+            targets.append((ms, {"PLATFORMIO_BUILD_FLAGS": f"-DMACHINE_FILENAME={fn}"}))
+    else:
+        targets.append(("default_release", {}))
 
     for name, extra_env in targets:
         env = os.environ.copy()
@@ -320,21 +343,29 @@ def run_g0_build(bundle: Path, grbl_root: Optional[Path], machines: Sequence[str
         st = "pass" if proc.returncode == 0 else "fail"
         if st == "fail":
             overall = "fail"
+        # Parse RAM/Flash percent if present in PlatformIO summary
+        joined = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        ram = re.search(r"RAM:\s*\[\S+\]\s*([\d.]+)%", joined)
+        flash = re.search(r"Flash:\s*\[\S+\]\s*([\d.]+)%", joined)
         builds.append(
             {
                 "target": name,
                 "status": st,
                 "exit_code": proc.returncode,
                 "duration_s": round(time.time() - t0, 2),
+                "ram_percent": float(ram.group(1)) if ram else None,
+                "flash_percent": float(flash.group(1)) if flash else None,
                 "stderr_tail": (proc.stderr or "")[-1500:],
                 "stdout_tail": (proc.stdout or "")[-1500:],
             }
         )
-        # For speed: if default fails, still record others optional — continue
+        if st == "fail":
+            break  # fail-fast
 
     result = {
         "layer": "G0",
         "status": overall,
+        "mode": mode,
         "grbl_root": str(grbl_root),
         "builds": builds,
     }
@@ -364,20 +395,37 @@ def run_g3_status(bundle: Path, scope: Dict[str, Any], g3_evidence: Optional[Pat
     features = scope.get("features") or {}
     needs_product = bool(features.get("paper_path") or features.get("bluetooth"))
     if g3_evidence and g3_evidence.is_file():
-        dest = bundle / "g3_acceptance_checklist.md"
+        dest = bundle / ("g3_evidence.yaml" if g3_evidence.suffix.lower() in (".yaml", ".yml") else "g3_acceptance_checklist.md")
         shutil.copy2(g3_evidence, dest)
-        result = {
-            "layer": "G3",
-            "status": "pass",
-            "note": "Operator-supplied evidence copied; gate does not re-verify content",
-            "evidence": str(dest.name),
-        }
+        # Structured YAML: validate; free-form md: accept as operator pass (legacy)
+        if g3_evidence.suffix.lower() in (".yaml", ".yml"):
+            try:
+                from g3_evidence import validate_g3_evidence
+            except ImportError:
+                sys.path.insert(0, str(Path(__file__).resolve().parent))
+                from g3_evidence import validate_g3_evidence  # type: ignore
+            status, report = validate_g3_evidence(g3_evidence, features if isinstance(features, dict) else {})
+            result = {
+                "layer": "G3",
+                "status": status,
+                "note": "validated structured evidence" if status == "pass" else "evidence validation failed",
+                "evidence": dest.name,
+                "validation": report,
+            }
+        else:
+            result = {
+                "layer": "G3",
+                "status": "pass",
+                "note": "Operator-supplied non-YAML evidence copied; content not machine-validated",
+                "evidence": dest.name,
+            }
     elif needs_product:
         result = {
             "layer": "G3",
             "status": "unknown",
             "note": "features require product HIL (paper/bt) but --g3-evidence not provided",
             "required_for": [k for k in ("paper_path", "bluetooth") if features.get(k)],
+            "template": "release/g3_evidence.template.yaml",
         }
     else:
         result = {
@@ -489,8 +537,8 @@ def decide_exit(layers: Dict[str, Dict[str, Any]], scope: Dict[str, Any]) -> Tup
     if layers.get("G5", {}).get("status") == "fail":
         return 1, reasons or ["G5 blockers_open nonempty"]
 
-    # G1 protocol must pass for any release gate success
-    if layers.get("G1_protocol", {}).get("status") != "pass":
+    # G1 protocol must pass when that layer was executed
+    if "G1_protocol" in layers and layers["G1_protocol"].get("status") != "pass":
         reasons.append("G1 protocol_sim did not pass")
         return 1, reasons
 
@@ -587,7 +635,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--g3-evidence",
         type=Path,
         default=None,
-        help="path to filled ACCEPTANCE checklist or HIL report",
+        help="path to filled g3_evidence YAML (preferred) or checklist md",
+    )
+    ap.add_argument(
+        "--g0-mode",
+        choices=("default", "machines", "test_drive"),
+        default="default",
+        help="G0 build strategy when GRBL_ROOT set",
     )
     ap.add_argument("--port", type=int, default=7681, help="TCP port for protocol_sim")
     ap.add_argument(
@@ -627,7 +681,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if "G0" in only and not args.skip_g0:
         print("=== G0 build ===")
-        layers["G0"] = run_g0_build(bundle, grbl_root, [str(m) for m in machines])
+        layers["G0"] = run_g0_build(
+            bundle,
+            grbl_root,
+            [str(m) for m in machines],
+            g0_mode=args.g0_mode,
+        )
     elif "G0" in only:
         layers["G0"] = {
             "layer": "G0",

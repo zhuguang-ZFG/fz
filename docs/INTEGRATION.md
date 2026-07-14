@@ -8,7 +8,11 @@ https://github.com/zhuguang-ZFG/fz
 
 本地默认路径建议：`D:/Users/zhugu/fz`（可用 `FZ_ROOT` 覆盖）。
 
-**上线前：** 按 [pre-release defect gate](specs/2026-07-14-pre-release-firmware-defect-gate-design.md) 跑完整 G0–G5；产品纸路实机表仍以 Grbl 仓 `docs/ACCEPTANCE_CHECKLIST.md` 为准并归档进 `fz/release/bundles/`。
+**上线前：** 按 [pre-release defect gate](specs/2026-07-14-pre-release-firmware-defect-gate-design.md) 跑完整 G0–G5。
+
+G3 证据：复制 `release/g3_evidence.template.yaml` → 填写 →  
+`python scripts/release_gate.py --scope ... --g3-evidence path/to/filled.yaml`  
+产品纸路步骤对齐 Grbl 仓 `docs/ACCEPTANCE_CHECKLIST.md`。
 
 ## Grbl_Esp32
 

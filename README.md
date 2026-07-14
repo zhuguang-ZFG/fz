@@ -49,8 +49,12 @@ python protocol_sim/run_regression.py --start-sim
 python hardware_sim/run_hw_sim.py --start-sim
 # 发布门禁（dev scope：无纸路/BT，不要求 G3）
 python scripts/release_gate.py --scope release/scopes/dev-quick.yaml --skip-g0
-# 产品 scope 示例：缺 G3 证据应 exit 3
-python scripts/release_gate.py --scope release/release_scope.example.yaml --skip-g0
+# 产品 scope：缺 G3 → exit 3；填 release/g3_evidence.template.yaml 后：
+# python scripts/release_gate.py --scope release/release_scope.example.yaml --skip-g0 `
+#   --g3-evidence release/g3_evidence.<filled>.yaml
+# 固件编译 G0（需 GRBL_ROOT + pio）：
+# $env:GRBL_ROOT='D:\Users\Grbl_Esp32'
+# python scripts/release_gate.py --scope release/scopes/dev-quick.yaml --only G0 --g0-mode test_drive
 ```
 
 Linux/macOS：请从 [grblHAL Simulator](https://github.com/grblHAL/Simulator) 自行构建，或用 Web Builder；将可执行文件路径写入环境变量。
