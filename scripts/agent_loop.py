@@ -57,6 +57,8 @@ def main() -> int:
                     str(FZ_ROOT / "scripts" / "release_honesty.py"),
                     "--require-agent-gate",
                     "--allow-pending-hil",
+                    "--max-age-hours",
+                    "24",
                 ]
             )
         return 0
@@ -75,6 +77,8 @@ def main() -> int:
                 str(FZ_ROOT / "scripts" / "release_honesty.py"),
                 "--require-agent-gate",
                 "--allow-pending-hil",
+                "--max-age-hours",
+                "24",
             ]
         )
     return rc2

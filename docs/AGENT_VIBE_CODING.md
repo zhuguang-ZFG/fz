@@ -92,7 +92,8 @@ $env:GRBL_ROOT='D:\Users\Grbl_Esp32'; python scripts/agent_gate.py --profile fir
 python scripts/agent_gate.py --profile quick --no-shared-sim
 ```
 
-CI（R22）：`.github/workflows/host_sil.yml` 在 push/PR 跑 `agent_gate --profile quick`（Windows + vendored sim）。
+CI（R22/R26）：`.github/workflows/host_sil.yml` — push/PR 跑 `quick`；schedule/dispatch `run_standard` 跑 `standard`。
+R27：`release_honesty.py --require-agent-gate` 默认 `--max-age-hours 24`（发版用 `--max-age-hours 168`）。
 
 ### 闭环加速（类「改网表 → 再跑 ERC」）
 

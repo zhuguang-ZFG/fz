@@ -5,7 +5,14 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  schedule:
+    - cron: '0 6 * * 1'  # weekly Monday 06:00 UTC
   workflow_dispatch:
+    inputs:
+      run_standard:
+        description: Run agent_gate --profile standard (slower, thorough)
+        type: boolean
+        default: false
 
 jobs:
   agent-gate-quick:
@@ -41,6 +48,48 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: agent-gate-quick
+          path: |
+            results/agent_gate_last.json
+            results/sim_session.json
+            protocol_sim/results/last_report.json
+            protocol_sim/results/golden_last.json
+            protocol_sim/results/integrity_inject_last.json
+          if-no-files-found: warn
+
+  agent-gate-standard:
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_standard == 'true') }}
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Preflight sim binary
+        shell: pwsh
+        run: |
+          $sim = "vendor/grblhal_sim/bin/grblHAL_sim.exe"
+          if (-not (Test-Path $sim)) {
+            Write-Error "missing $sim — vendor binary required for CI"
+            exit 2
+          }
+          Get-Item $sim | Format-List Name, Length
+
+      - name: agent_gate standard (protocol + hardware_sim)
+        shell: pwsh
+        run: |
+          python scripts/agent_gate.py --profile standard
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-gate-standard
           path: |
             results/agent_gate_last.json
             results/sim_session.json

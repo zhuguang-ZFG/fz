@@ -73,8 +73,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument(
         "--max-age-hours",
         type=float,
-        default=168.0,
-        help="max age of agent_gate report (default 7d)",
+        default=24.0,
+        help="max age of agent_gate report in hours (default 24h; release --max-age-hours 168)",
     )
     ap.add_argument(
         "--scope",
