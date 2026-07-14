@@ -12,6 +12,7 @@ Last updated: 2026-07-14
 | R5+ | USB dual-flash G4 helper | **done** | `hil/dual_flash_usb.py` |
 | R4 | G2 QWEN contracts | **done** | `run_g2_qwen_contracts.py` (+ QWEN tests) |
 | R5 | G4 OTA evidence + smoke entry | **done** | `g4_ota*`, `full_release_smoke.py` |
+| R6 | A2A strict template + HIL→gate | **done** | `a2a_workorders/TEMPLATE.md`, `scripts/hil_to_gate.py` |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU full stack | **out of scope** | design non-goal |
 
@@ -20,6 +21,8 @@ Last updated: 2026-07-14
 ```powershell
 cd D:\Users\zhugu\fz
 python scripts/full_release_smoke.py
+python scripts/hil_to_gate.py --skip-smoke
+# with board: python scripts/hil_to_gate.py --port COM7 [--with-g4]
 python hardware_sim/run_hw_sim.py --start-sim
 $env:QWEN_ROOT='D:\QWEN3.0'; python scripts/full_release_smoke.py --with-cloud
 $env:GRBL_ROOT='D:\Users\Grbl_Esp32'; python scripts/full_release_smoke.py --with-g0

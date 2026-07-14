@@ -113,8 +113,9 @@
 | 优先级 | 项 | 动作 |
 |--------|-----|------|
 | P0 | A2A 斜杠 | **重启 a2a-bridge** 验证 register→send |
-| P1 | G3b 可脚本部分 | `hil/` 增加 M30 日志序列（有板时） |
-| P2 | OTA | 有板时 USB 双版本 flash 脚本填 G4 |
+| P0b | A2A strict 工单 | 用 `a2a_workorders/TEMPLATE.md`（```gates + risk + owns） |
+| P1 | G3b 可脚本部分 | **已有** `hil/paper_m30_serial.py`；一键 `scripts/hil_to_gate.py --port` |
+| P2 | OTA | USB 双版本：`hil_to_gate.py --with-g4`；真 Wi-Fi OTA 仍证据清单 |
 | P3 | QEMU | 维持不做产品门禁 |
 
 ---

@@ -35,6 +35,9 @@ fz/
 ```powershell
 # 一键自动化冒烟（默认无真机）
 python scripts/full_release_smoke.py
+# HIL 证据 → release_gate（无 --port 仅离线；有板再加 COM）
+python scripts/hil_to_gate.py --skip-smoke
+# python scripts/hil_to_gate.py --port COM7 [--with-g4]
 ```
 
 术语：主路径是 **SIL 主机仿真 + 上线真硅清单**，不是芯片全真孪生。

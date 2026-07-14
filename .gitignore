@@ -4,6 +4,7 @@ hardware_sim/results/*
 !hardware_sim/results/.gitkeep
 !protocol_sim/results/.gitkeep
 release/bundles/
+results/
 **/__pycache__/
 *.pyc
 .EEPROM*.DAT

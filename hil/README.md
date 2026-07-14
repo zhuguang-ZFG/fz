@@ -50,8 +50,29 @@ python scripts/release_gate.py --scope release/scopes/dev-ota.yaml --skip-g0 `
   --g4-evidence release/g4_ota.filled.yaml --only G4,G5
 ```
 
+## One-click HIL → gate
+
+```powershell
+# offline (no board): hil unit tests + optional full_release_smoke
+python scripts/hil_to_gate.py
+python scripts/hil_to_gate.py --skip-smoke
+
+# board: paper M30 serial → merge g3 → release_gate G1,G3,G5
+python scripts/hil_to_gate.py --port COM7
+# test_drive without paper logs:
+python scripts/hil_to_gate.py --port COM7 --no-expect-paper-log
+
+# + USB dual flash G4 (needs GRBL_ROOT + pio)
+$env:GRBL_ROOT='D:\Users\Grbl_Esp32'
+python scripts/hil_to_gate.py --port COM7 --with-g4 --g4-mode once
+```
+
+Evidence lands under `results/` (`g3_evidence.filled.yaml`, optional `g4_ota.filled.yaml`).  
+Remaining YAML items (keys / true Wi-Fi OTA) still need operator fill — pipeline only patches scriptable fields.
+
 ## Offline tests
 
 ```powershell
 python -m unittest discover -s hil -p "test_*.py" -v
+python -m unittest scripts.test_hil_to_gate -v
 ```
