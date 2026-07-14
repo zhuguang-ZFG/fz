@@ -1,4 +1,5 @@
-# R22: host SIL on CI (no board). Windows runners use vendored grblHAL_sim.exe.
+# R22/R32: host SIL on CI (no board).
+# Windows: vendored grblHAL_sim.exe | Linux: build from grblHAL/Simulator (R32)
 name: host-sil
 
 on:
@@ -63,6 +64,52 @@ jobs:
             protocol_sim/results/last_report.json
             protocol_sim/results/golden_last.json
             protocol_sim/results/integrity_inject_last.json
+            protocol_sim/results/case_schema_last.json
+          if-no-files-found: warn
+
+  # R32: Linux host SIL — build grblHAL_sim from upstream, then agent_gate quick
+  agent-gate-quick-linux:
+    if: ${{ github.event_name != 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends build-essential cmake git
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build grblHAL_sim (Linux)
+        run: bash scripts/build_grblhal_sim.sh
+
+      - name: validate protocol JSON cases
+        run: python protocol_sim/validate_cases.py
+
+      - name: agent_gate quick
+        run: |
+          export GRBLHAL_SIM="${GITHUB_WORKSPACE}/vendor/grblhal_sim/bin/grblHAL_sim"
+          test -x "$GRBLHAL_SIM"
+          python scripts/agent_gate.py --profile quick
+
+      - name: Upload gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-gate-quick-linux
+          path: |
+            results/agent_gate_last.json
+            results/sim_session.json
+            protocol_sim/results/last_report.json
+            protocol_sim/results/golden_last.json
+            protocol_sim/results/integrity_inject_last.json
+            protocol_sim/results/case_schema_last.json
           if-no-files-found: warn
 
   agent-gate-standard:

@@ -36,6 +36,7 @@ Last updated: 2026-07-14
 | R27 | Report age tightening (default 24h; release override 168h) | **done** | `scripts/release_honesty.py` default 24h |
 | R28 | CI hygiene: schedule skips quick (Claude residual) | **done** | `host_sil.yml` if event != schedule |
 | R33 | protocol JSON case structural check | **done** | `protocol_sim/validate_cases.py` in gate+CI |
+| R32 | Linux host SIL CI (build sim + gate) | **done** | `build_grblhal_sim.sh` + `agent-gate-quick-linux` |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 

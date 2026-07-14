@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from sim_common.find_sim import find_sim
+from sim_common.find_sim import find_sim  # noqa: F401 — TestFindSim + session
 from sim_common.grbl_tcp import GrblTcp, classify_responses, parse_mpos
 from sim_common.ports import find_free_port, port_listening
 from sim_common.sim_session import start_protocol_session, stop_session
@@ -27,6 +27,15 @@ class TestPorts(unittest.TestCase):
         p = find_free_port(27999, span=5)
         self.assertTrue(1000 < p < 65535)
         self.assertFalse(port_listening(p) and False)  # just call API
+
+
+class TestFindSim(unittest.TestCase):
+    def test_find_sim_returns_path_or_none(self) -> None:
+        # On this Windows tree vendored .exe should exist
+        p = find_sim()
+        if p is not None:
+            self.assertTrue(p.is_file())
+            self.assertTrue("grblHAL_sim" in p.name)
 
 
 class TestSimSession(unittest.TestCase):

@@ -43,7 +43,9 @@ python scripts/agent_gate.py
 # R21: integrity+protocol share one sim; --no-shared-sim to disable
 python scripts/agent_loop.py --profile standard    # gate→失败重跑→再 gate
 python scripts/release_honesty.py --require-agent-gate --allow-pending-hil  # 发版诚实度
-# R22 CI: .github/workflows/host_sil.yml
+# R22/R32 CI: .github/workflows/host_sil.yml (Windows + Linux build sim)
+# Linux local: bash scripts/build_grblhal_sim.sh && python3 scripts/agent_gate.py --profile quick
+# VPS self-hosted optional: docs/ops_linux_sim_ci.md
 # 报告: results/agent_gate_last.json / release_honesty_last.json
 # 详见 docs/AGENT_VIBE_CODING.md · docs/specs/2026-07-14-eda-inspired-release-honesty.md
 

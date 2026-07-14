@@ -13,34 +13,46 @@ FZ_ROOT = Path(__file__).resolve().parent.parent
 VENDOR_SIM = FZ_ROOT / "vendor" / "grblhal_sim" / "bin"
 
 
-def _env_exe(name: str, default: str) -> Optional[Path]:
+def _env_path(name: str) -> Optional[Path]:
     raw = os.environ.get(name)
-    if raw:
-        p = Path(raw)
-        return p if p.is_file() else None
-    w = which(default)
-    return Path(w) if w else None
+    if not raw:
+        return None
+    p = Path(raw)
+    return p if p.is_file() else None
+
+
+def _which_any(*names: str) -> Optional[Path]:
+    for n in names:
+        w = which(n)
+        if w:
+            return Path(w)
+    return None
 
 
 def find_sim() -> Optional[Path]:
-    for cand in (
-        _env_exe("GRBLHAL_SIM", "grblHAL_sim.exe"),
-        _env_exe("GRBLHAL_SIM", "grblHAL_sim"),
+    """Prefer GRBLHAL_SIM, then vendored Windows .exe / Linux ELF, then PATH."""
+    ordered: list[Optional[Path]] = [
+        _env_path("GRBLHAL_SIM"),
         VENDOR_SIM / "grblHAL_sim.exe",
         VENDOR_SIM / "grblHAL_sim",
-    ):
+        VENDOR_SIM / "linux" / "grblHAL_sim",
+        _which_any("grblHAL_sim", "grblHAL_sim.exe"),
+    ]
+    for cand in ordered:
         if cand is not None and Path(cand).is_file():
             return Path(cand)
     return None
 
 
 def find_validator() -> Optional[Path]:
-    for cand in (
-        _env_exe("GRBLHAL_VALIDATOR", "grblHAL_validator.exe"),
-        _env_exe("GRBLHAL_VALIDATOR", "grblHAL_validator"),
+    ordered: list[Optional[Path]] = [
+        _env_path("GRBLHAL_VALIDATOR"),
         VENDOR_SIM / "grblHAL_validator.exe",
         VENDOR_SIM / "grblHAL_validator",
-    ):
+        VENDOR_SIM / "linux" / "grblHAL_validator",
+        _which_any("grblHAL_validator", "grblHAL_validator.exe"),
+    ]
+    for cand in ordered:
         if cand is not None and Path(cand).is_file():
             return Path(cand)
     return None
