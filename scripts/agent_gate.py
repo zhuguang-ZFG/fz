@@ -278,6 +278,12 @@ def agent_hints_for_failures(layers: List[Layer]) -> List[str]:
             )
         elif L.id == "units":
             hints.append("Fix unit tests under sim_common/hardware_sim/hil/chip_sim.")
+        elif L.id == "case_schema":
+            hints.append(
+                "protocol JSON case structure invalid — fix cases under "
+                "protocol_sim/cases/{fail,golden,status,inject}; "
+                "python protocol_sim/validate_cases.py"
+            )
         elif L.id == "integrity":
             hints.append(
                 "Integrity inject leaked false-green — harness/expect matching broken. "
@@ -424,6 +430,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     layers.append(
         Layer(id="preflight", name="grblHAL_sim", status="pass", detail=str(sim))
+    )
+
+    # R33: structural JSON case check (offline, before TCP sim)
+    code, dur = _run(
+        [sys.executable, str(FZ_ROOT / "protocol_sim" / "validate_cases.py")]
+    )
+    layers.append(
+        Layer(
+            id="case_schema",
+            name="protocol_json_cases",
+            status="pass" if code == 0 else "fail",
+            exit_code=code,
+            duration_s=dur,
+            log_hint="protocol_sim/results/case_schema_last.json",
+            detail="R33 structural validation (community CI hygiene)",
+        )
     )
 
     # always: quick units for sim_common (cheap)

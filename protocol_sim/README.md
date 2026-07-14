@@ -39,6 +39,8 @@ python protocol_sim/run_regression.py --start-sim --integrity-inject
 python scripts/golden_record.py --from-last --kinds fail --only NAME --dry-run
 # R24 soft allowlist:
 python scripts/soft_allowlist.py
+# R33 offline JSON structure (before TCP):
+python protocol_sim/validate_cases.py
 ```
 
 Fail set (community CAM): bad number, modal, undefined feed, unsupported G/M, arc e35/e34, G1 no target.  

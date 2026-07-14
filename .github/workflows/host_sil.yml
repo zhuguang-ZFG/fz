@@ -15,7 +15,10 @@ on:
         default: false
 
 jobs:
+  # R28: on weekly schedule only run standard (avoid paying for quick+standard).
+  # push / PR / manual dispatch always run quick.
   agent-gate-quick:
+    if: ${{ github.event_name != 'schedule' }}
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
@@ -36,6 +39,12 @@ jobs:
             exit 2
           }
           Get-Item $sim | Format-List Name, Length
+
+      - name: validate protocol JSON cases (R33, no sim)
+        shell: pwsh
+        run: |
+          python protocol_sim/validate_cases.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: agent_gate quick (shared sim + integrity + protocol)
         shell: pwsh
