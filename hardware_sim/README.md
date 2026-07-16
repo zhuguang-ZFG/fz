@@ -14,6 +14,12 @@ Writes:
 - `results/last_hw_report.json`
 - `results/step_last.log` / `block_last.log` (when started with `--start-sim`)
 - `results/EEPROM_hw.DAT` (isolated settings)
+- `results/runs/<run-id>/report.json` / `manifest.json`
+- `results/runs/<run-id>/step.log` / `block.log` / `EEPROM.DAT`
+
+The `*_last` files are atomic compatibility copies for existing gate and triage
+scripts. Every invocation uses a fresh run directory, so prior motion and EEPROM
+state cannot overwrite the evidence for a later run.
 
 ## Design
 
@@ -38,7 +44,14 @@ python hardware_sim/run_hw_sim.py --start-sim
 python hardware_sim/run_hw_sim.py --start-sim --fast
 python hardware_sim/run_hw_sim.py --start-sim --json-only
 python hardware_sim/run_hw_sim.py --start-sim --builtin-only
+python hardware_sim/run_hw_sim.py --start-sim --only move_x_10
+python hardware_sim/run_hw_sim.py --start-sim --repeat 20
 ```
+
+`--repeat N` starts a separate simulator process with fresh logs and EEPROM for
+each iteration, then writes an aggregate `last_hw_report.json`. Step windows wait
+for cumulative counters to settle and compare the latest signed counters; the
+session-wide lower bound still uses maximum absolute travel.
 
 Inject protocol: `docs/sim_inject_protocol.md`  
 Plant: `plant.py` (TCP `!`/`~`; stdin PIPE best-effort / soft on Windows).  

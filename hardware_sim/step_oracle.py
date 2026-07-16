@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
@@ -77,6 +78,42 @@ def steps_delta(
 def snapshot_max_abs(path: Path) -> Tuple[int, int, int, int]:
     """Convenience: max-abs steps currently in log file."""
     return max_abs_steps(parse_step_log(path))
+
+
+def snapshot_last_steps(path: Path) -> Tuple[int, int, int, int]:
+    """Return the latest cumulative counters currently visible in the log."""
+    return last_steps(parse_step_log(path))
+
+
+def wait_snapshot_settled(
+    path: Path,
+    *,
+    before: Optional[Sequence[int]] = None,
+    require_change: bool = False,
+    timeout_s: float = 2.0,
+    min_wait_s: float = 0.2,
+    settle_s: float = 0.15,
+    poll_s: float = 0.025,
+) -> Tuple[int, int, int, int]:
+    """Wait for cumulative step counters to become visible and stop changing."""
+    started = time.monotonic()
+    deadline = started + timeout_s
+    baseline = tuple(before[:4]) if before is not None else None
+    current = snapshot_last_steps(path)
+    stable_since = started
+
+    while time.monotonic() < deadline:
+        now = time.monotonic()
+        observed = snapshot_last_steps(path)
+        if observed != current:
+            current = observed
+            stable_since = now
+        changed = baseline is None or current != baseline
+        if now - started >= min_wait_s and now - stable_since >= settle_s:
+            if changed or not require_change:
+                return current
+        time.sleep(poll_s)
+    return current
 
 
 def per_move_delta(

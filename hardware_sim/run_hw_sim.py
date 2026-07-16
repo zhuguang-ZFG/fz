@@ -10,15 +10,19 @@ checks MPos after simple moves. Not product firmware.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
+import uuid
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
@@ -30,6 +34,7 @@ from step_oracle import (  # noqa: E402
     mm_from_steps,
     snapshot_max_abs,
     per_move_delta,
+    wait_snapshot_settled,
 )
 from plant import Plant  # noqa: E402
 from case_runner import run_all_json_cases  # noqa: E402
@@ -51,6 +56,7 @@ HW_ROOT = Path(__file__).resolve().parent
 RESULTS = HW_ROOT / "results"
 CASES = HW_ROOT / "cases"
 DEFAULT_STEPS_PER_MM = (250.0, 250.0, 250.0)
+RUNS = RESULTS / "runs"
 
 
 @dataclass
@@ -61,6 +67,137 @@ class CaseResult:
     mpos: Optional[List[float]] = None
     responses: List[str] = field(default_factory=list)
     source: str = "builtin"
+
+
+def make_run_id() -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return f"{timestamp}-{os.getpid()}-{uuid.uuid4().hex[:6]}"
+
+
+def atomic_write_json(path: Path, data: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    os.replace(temp, path)
+
+
+def atomic_copy(source: Path, destination: Path) -> None:
+    if not source.is_file():
+        return
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temp = destination.with_name(f".{destination.name}.{os.getpid()}.tmp")
+    shutil.copyfile(source, temp)
+    os.replace(temp, destination)
+
+
+def file_sha256(path: Path) -> Optional[str]:
+    if not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def build_repeat_command(argv: Sequence[str], run_id: str) -> List[str]:
+    cleaned: List[str] = []
+    skip_next = False
+    for arg in argv:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in ("--repeat", "--run-id"):
+            skip_next = True
+            continue
+        if arg.startswith("--repeat=") or arg.startswith("--run-id="):
+            continue
+        cleaned.append(arg)
+    return [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        *cleaned,
+        "--repeat",
+        "1",
+        "--run-id",
+        run_id,
+    ]
+
+
+def run_repeated(argv: Sequence[str], repeat: int, base_run_id: str) -> int:
+    aggregate_dir = RUNS / base_run_id
+    aggregate_dir.mkdir(parents=True, exist_ok=False)
+    runs: List[Dict[str, Any]] = []
+    cases: List[Dict[str, Any]] = []
+    failed = False
+    for iteration in range(1, repeat + 1):
+        run_id = f"{base_run_id}-r{iteration:03d}"
+        command = build_repeat_command(argv, run_id)
+        completed = subprocess.run(command, cwd=str(FZ_ROOT), check=False)
+        report_path = RUNS / run_id / "report.json"
+        report: Dict[str, Any] = {}
+        if report_path.is_file():
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+        run_failed = completed.returncode != 0 or any(
+            case.get("passed") is False
+            for case in report.get("cases", [])
+            if isinstance(case, dict)
+        )
+        failed = failed or run_failed
+        runs.append(
+            {
+                "iteration": iteration,
+                "run_id": run_id,
+                "exit_code": completed.returncode,
+                "passed": not run_failed,
+                "report": str(report_path),
+            }
+        )
+        if report:
+            for case in report.get("cases", []):
+                if isinstance(case, dict):
+                    item = dict(case)
+                    item["iteration"] = iteration
+                    item["run_id"] = run_id
+                    cases.append(item)
+        else:
+            cases.append(
+                {
+                    "name": "repeat_run_report",
+                    "passed": False,
+                    "detail": f"iteration {iteration} produced no report (exit={completed.returncode})",
+                    "iteration": iteration,
+                    "run_id": run_id,
+                }
+            )
+
+    last_report = report if report else {}
+    aggregate = {
+        "sim_mode": "hardware_sim_not_silicon",
+        "engine": "grblHAL_sim",
+        "run_id": base_run_id,
+        "run_dir": str(aggregate_dir),
+        "repeat": repeat,
+        "runs": runs,
+        "step_log": last_report.get("step_log"),
+        "block_log": last_report.get("block_log"),
+        "json_cases": last_report.get("json_cases"),
+        "cases": cases,
+    }
+    atomic_write_json(aggregate_dir / "report.json", aggregate)
+    atomic_write_json(
+        aggregate_dir / "manifest.json",
+        {
+            "run_id": base_run_id,
+            "kind": "repeat_aggregate",
+            "repeat": repeat,
+            "command": [sys.executable, str(Path(__file__).resolve()), *argv],
+            "runs": runs,
+        },
+    )
+    atomic_write_json(RESULTS / "last_hw_report.json", aggregate)
+    print(f"repeat {repeat}: {'FAIL' if failed else 'PASS'}; wrote {aggregate_dir / 'report.json'}")
+    return 1 if failed else 0
 
 
 def run_motion_case(
@@ -74,17 +211,18 @@ def run_motion_case(
     step_eps_mm: float = 0.75,
 ) -> CaseResult:
     """Assert MPos delta after moves; optional per-move StepOracle on last motion line."""
-    client.soft_reset()
+    all_resp: List[str] = list(client.soft_reset())
     client.unlock()
-    all_resp: List[str] = []
     start, r0 = wait_idle(client, timeout=5.0)
     all_resp.extend(r0)
+    if step_log:
+        wait_snapshot_settled(step_log)
     if start is None:
         start = [0.0, 0.0, 0.0]
     last_motion = None
     for mv in moves:
         is_motion = bool(re.match(r"(?i)^G[01]\b", mv.strip()))
-        before = snapshot_max_abs(step_log) if (step_log and is_motion) else None
+        before = wait_snapshot_settled(step_log) if (step_log and is_motion) else None
         resp = client.send_line(mv, wait=15.0)
         all_resp.extend(resp)
         if any(ERROR_RE.search(x) or ALARM_RE.search(x) for x in resp):
@@ -109,8 +247,12 @@ def run_motion_case(
             )
     # Per-move StepOracle on the last G0/G1 line (session log max-abs delta)
     if step_log and last_motion and last_motion[1] is not None:
-        time.sleep(0.12)
-        after = snapshot_max_abs(step_log)
+        after = wait_snapshot_settled(
+            step_log,
+            before=last_motion[1],
+            require_change=any(abs(float(value)) > 0 for value in expect_delta[:3]),
+            timeout_s=3.0,
+        )
         dsteps = per_move_delta(last_motion[1], after)
         # For multi-line cases, expect_delta is whole-case; use full-case step check
         ok_s, det_s, act_mm = assert_travel_mm(
@@ -211,7 +353,9 @@ def run_soft_limit_setting_gate(client: GrblTcp) -> CaseResult:
     )
 
 
-def run_feed_hold_plant(client: GrblTcp, time_factor: float) -> CaseResult:
+def run_feed_hold_plant(
+    client: GrblTcp, time_factor: float, step_log: Optional[Path] = None
+) -> CaseResult:
     """
     Community Grbl realtime: ! → Hold (TCP). Optional ~ resume.
     Needs time_factor > 0 so status is still Run when ! arrives.
@@ -241,9 +385,15 @@ def run_feed_hold_plant(client: GrblTcp, time_factor: float) -> CaseResult:
         st_run = st
         if any("Run" in x for x in st):
             plant.feed_hold()
-            time.sleep(0.9)
-            st_hold = client.send_line("?", wait=0.5)
-            if not any("Hold" in x for x in st_hold):
+            st_hold: List[str] = []
+            hold_deadline = time.monotonic() + 3.0
+            while time.monotonic() < hold_deadline:
+                time.sleep(0.25)
+                hold_resp = client.send_line("?", wait=0.4)
+                st_hold.extend(hold_resp)
+                if any("Hold" in line for line in hold_resp):
+                    break
+            if not any("Hold" in line for line in st_hold):
                 return CaseResult(
                     "plant_feed_hold",
                     False,
@@ -257,8 +407,10 @@ def run_feed_hold_plant(client: GrblTcp, time_factor: float) -> CaseResult:
             resumed = any(("Run" in x) or ("Idle" in x) for x in st_res)
             # Always clear for following cases
             client.soft_reset()
-            time.sleep(0.3)
             client.unlock()
+            wait_idle(client, timeout=5.0)
+            if step_log:
+                wait_snapshot_settled(step_log)
             detail = (
                 "TCP ! → Hold; ~ resumed"
                 if resumed
@@ -326,6 +478,7 @@ def run_check_mode_toggle(client: GrblTcp) -> CaseResult:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
     ap = argparse.ArgumentParser(description="hardware_sim baseline runner")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=7682)
@@ -368,7 +521,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default="",
         help="comma-separated case name filters (builtin and/or json id)",
     )
-    args = ap.parse_args(list(argv) if argv is not None else None)
+    ap.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="run N isolated simulator processes and aggregate their reports",
+    )
+    ap.add_argument("--run-id", default="", help=argparse.SUPPRESS)
+    args = ap.parse_args(raw_argv)
+    if args.repeat < 1:
+        ap.error("--repeat must be at least 1")
+    if args.repeat > 1:
+        if not args.start_sim:
+            ap.error("--repeat > 1 requires --start-sim for process isolation")
+        try:
+            return run_repeated(raw_argv, args.repeat, args.run_id or make_run_id())
+        except FileExistsError as exc:
+            print(f"ERROR: run directory already exists: {exc.filename}", file=sys.stderr)
+            return 2
     if args.fast:
         args.time_factor = 0.0
     if args.builtin_only:
@@ -383,15 +553,36 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         n = name.lower()
         return any(f in n or n == f for f in only_f)
 
-    RESULTS.mkdir(parents=True, exist_ok=True)
-    if step_log_path := (RESULTS / "step_last.log"):
+    def _want_json_path(path: Path) -> bool:
+        if not only_f:
+            return True
+        names = [path.stem.lower()]
         try:
-            step_log_path.write_text("", encoding="utf-8")
-        except OSError:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            names.append(str(data.get("id") or "").lower())
+        except (OSError, json.JSONDecodeError):
             pass
-    step_log = RESULTS / "step_last.log"
-    block_log = RESULTS / "block_last.log"
-    eeprom = RESULTS / "EEPROM_hw.DAT"
+        return any(
+            filter_value in name or name in filter_value
+            for filter_value in only_f
+            for name in names
+            if name
+        )
+
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    run_id = args.run_id or make_run_id()
+    run_dir = RUNS / run_id
+    try:
+        run_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        print(f"ERROR: run directory already exists: {run_dir}", file=sys.stderr)
+        return 2
+    step_log = run_dir / "step.log"
+    block_log = run_dir / "block.log"
+    eeprom = run_dir / "EEPROM.DAT"
+    started_at = datetime.now(timezone.utc).isoformat()
+    sim_metadata: Dict[str, Any] = {}
+    sim_command: List[str] = []
 
     sim_proc: Optional[subprocess.Popen] = None
     if args.start_sim:
@@ -399,6 +590,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if not sim:
             print("ERROR: grblHAL_sim not found", file=sys.stderr)
             return 2
+        sim = sim.resolve()
+        sim_metadata = {
+            "path": str(sim),
+            "sha256": file_sha256(sim),
+            "size": sim.stat().st_size,
+            "mtime_ns": sim.stat().st_mtime_ns,
+        }
         args.port = find_free_port(args.port, host=args.host)
         # -r must be >0 or step printing is disabled (upstream default 0=no print)
         cmd = [
@@ -417,6 +615,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "-e",
             str(eeprom),
         ]
+        sim_command = cmd
+        atomic_write_json(
+            run_dir / "manifest.json",
+            {
+                "run_id": run_id,
+                "started_at": started_at,
+                "command": [sys.executable, str(Path(__file__).resolve()), *raw_argv],
+                "host": args.host,
+                "port": args.port,
+                "time_factor": args.time_factor,
+                "simulator": sim_metadata,
+                "simulator_command": sim_command,
+            },
+        )
         # stdin PIPE for best-effort pin inject (Windows often ineffective — cases soft)
         sim_proc = subprocess.Popen(
             cmd,
@@ -482,7 +694,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if _want("soft_limit"):
                 builtin_jobs.append(lambda: run_soft_limit_setting_gate(client))
             if _want("plant_feed_hold") or _want("feed_hold"):
-                builtin_jobs.append(lambda: run_feed_hold_plant(client, args.time_factor))
+                builtin_jobs.append(
+                    lambda: run_feed_hold_plant(
+                        client,
+                        args.time_factor,
+                        step_log=step_log if args.start_sim else None,
+                    )
+                )
             if _want("override"):
                 builtin_jobs.append(lambda: run_override_reset_smoke(client))
             if _want("check_mode"):
@@ -512,7 +730,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 results.append(run_error_case(client, "undefined_feed_G1", "G1 X1"))
                 results.append(run_settings_travel_roundtrip(client))
                 results.append(run_soft_limit_setting_gate(client))
-                results.append(run_feed_hold_plant(client, args.time_factor))
+                results.append(
+                    run_feed_hold_plant(
+                        client,
+                        args.time_factor,
+                        step_log=step_log if args.start_sim else None,
+                    )
+                )
                 results.append(run_override_reset_smoke(client))
                 results.append(run_check_mode_toggle(client))
             else:
@@ -523,6 +747,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             jresults = run_all_json_cases(
                 client,
                 CASES,
+                case_filter=_want_json_path,
                 step_log=step_log if args.start_sim else None,
                 plant=plant,
                 time_factor=args.time_factor,
@@ -555,6 +780,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 sim_proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 sim_proc.kill()
+                sim_proc.wait(timeout=5)
+
+    if args.start_sim:
+        atomic_copy(step_log, RESULTS / "step_last.log")
+        atomic_copy(block_log, RESULTS / "block_last.log")
+        atomic_copy(eeprom, RESULTS / "EEPROM_hw.DAT")
 
     # step log: check after process exit (flush) + StepOracle
     # Skip session lower-bound when --only filters a subset (not full motion suite)
@@ -625,13 +856,46 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     report = {
         "sim_mode": "hardware_sim_not_silicon",
         "engine": "grblHAL_sim",
+        "run_id": run_id,
+        "run_dir": str(run_dir),
+        "started_at": started_at,
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+        "command": [sys.executable, str(Path(__file__).resolve()), *raw_argv],
+        "host": args.host,
+        "port": args.port,
+        "time_factor": args.time_factor,
+        "simulator": sim_metadata or None,
+        "simulator_command": sim_command or None,
         "step_log": str(step_log) if step_log.is_file() else None,
         "block_log": str(block_log) if block_log.is_file() else None,
+        "eeprom": str(eeprom) if eeprom.is_file() else None,
         "json_cases": run_json,
         "cases": [asdict(r) for r in results],
     }
-    out = RESULTS / "last_hw_report.json"
-    out.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    out = run_dir / "report.json"
+    atomic_write_json(out, report)
+    atomic_write_json(RESULTS / "last_hw_report.json", report)
+    atomic_write_json(
+        run_dir / "manifest.json",
+        {
+            "run_id": run_id,
+            "started_at": started_at,
+            "finished_at": report["finished_at"],
+            "exit_code": 1 if failed else 0,
+            "command": report["command"],
+            "host": args.host,
+            "port": args.port,
+            "time_factor": args.time_factor,
+            "simulator": sim_metadata or None,
+            "simulator_command": sim_command or None,
+            "artifacts": {
+                "report": str(out),
+                "step_log": report["step_log"],
+                "block_log": report["block_log"],
+                "eeprom": report["eeprom"],
+            },
+        },
+    )
     print(f"wrote {out}")
     return 1 if failed else 0
 

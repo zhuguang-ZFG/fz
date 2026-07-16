@@ -42,14 +42,13 @@ import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from plant import Plant
 from step_oracle import (
     assert_travel_mm,
-    parse_step_log,
     per_move_delta,
-    snapshot_max_abs,
+    wait_snapshot_settled,
 )
 from sim_common.grbl_tcp import (
     ALARM_RE,
@@ -119,9 +118,12 @@ def run_json_case(
 
     all_resp: List[str] = []
     if data.get("soft_reset", True):
-        client.soft_reset()
-        time.sleep(0.25)
+        all_resp.extend(client.soft_reset())
         client.unlock()
+        _, reset_resp = wait_idle(client, timeout=5.0)
+        all_resp.extend(reset_resp)
+        if step_log:
+            wait_snapshot_settled(step_log)
 
     for line in data.get("setup") or []:
         r = client.send_line(str(line), wait=float(data.get("setup_wait", 1.0)))
@@ -155,13 +157,8 @@ def run_json_case(
             continue
         wait = float(step.get("wait", 2.0))
         before_snap = None
-        t_before = None
         if step.get("step_window") and step_log:
-            # flush-ish: short sleep so file has prior samples
-            time.sleep(0.05)
-            before_snap = snapshot_max_abs(step_log)
-            samples = parse_step_log(step_log)
-            t_before = samples[-1].t if samples else 0.0
+            before_snap = wait_snapshot_settled(step_log)
 
         if step.get("async"):
             assert client.sock
@@ -205,18 +202,22 @@ def run_json_case(
             if not ok and not step.get("soft", False):
                 return CaseResult(cid, False, detail=f"inject after send: {detail}", responses=all_resp, source="json")
 
-        if step.get("wait_idle"):
+        expect_mm = step.get("expect_travel_mm") or [0, 0, 0]
+        expect_step_change = any(abs(float(value)) > 0 for value in expect_mm[:3])
+        if step.get("wait_idle") and (not step.get("step_window") or expect_step_change):
             mpos, rr = wait_idle(client, timeout=float(step.get("idle_timeout", 30)))
             all_resp.extend(rr)
 
         if step.get("step_window") and step_log and before_snap is not None:
-            # ensure motion finished for oracle
-            if not step.get("async"):
+            if not step.get("async") and expect_step_change and not step.get("wait_idle"):
                 wait_idle(client, timeout=float(step.get("idle_timeout", 30)))
-            time.sleep(0.15)
-            after_snap = snapshot_max_abs(step_log)
+            after_snap = wait_snapshot_settled(
+                step_log,
+                before=before_snap,
+                require_change=expect_step_change,
+                timeout_s=float(step.get("step_timeout", 3.0)),
+            )
             dsteps = per_move_delta(before_snap, after_snap)
-            expect_mm = step.get("expect_travel_mm") or [0, 0, 0]
             eps = float(step.get("eps_mm", 0.6))
             ok, detail, actual = assert_travel_mm(dsteps, expect_mm, steps_per_mm, eps_mm=eps)
             if not ok:
@@ -319,10 +320,13 @@ def _wait_status(
 def run_all_json_cases(
     client: GrblTcp,
     cases_dir: Path,
+    case_filter: Optional[Callable[[Path], bool]] = None,
     **kwargs: Any,
 ) -> List[CaseResult]:
     out: List[CaseResult] = []
     for path in load_case_files(cases_dir):
+        if case_filter is not None and not case_filter(path):
+            continue
         try:
             out.append(run_json_case(client, path, **kwargs))
         except Exception as exc:  # noqa: BLE001 — case isolation
