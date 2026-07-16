@@ -87,6 +87,7 @@ def build_observe() -> Dict[str, Any]:
     golden = _read_json(FZ_ROOT / "protocol_sim" / "results" / "golden_last.json") or {}
     schema = _read_json(FZ_ROOT / "protocol_sim" / "results" / "case_schema_last.json") or {}
     last_proto = _read_json(FZ_ROOT / "protocol_sim" / "results" / "last_report.json")
+    native_cov = _read_json(FZ_ROOT / "native_sim" / "results" / "coverage_summary.json") or {}
     triage = _read_json(RESULTS / "triage_last.json") or {}
     integrity = _read_json(
         FZ_ROOT / "protocol_sim" / "results" / "integrity_inject_last.json"
@@ -352,6 +353,40 @@ def build_observe() -> Dict[str, Any]:
                 refs=["protocol_sim/results/last_report.json"],
             )
         )
+
+    if isinstance(native_cov, dict) and native_cov.get("status") in ("pass", "skip"):
+        files = native_cov.get("files") if isinstance(native_cov.get("files"), dict) else {}
+        if native_cov.get("status") == "skip":
+            findings.append(
+                _finding(
+                    "optimize",
+                    "native_coverage",
+                    "native product coverage skipped",
+                    detail=str(native_cov.get("stderr") or "coverage tools unavailable"),
+                    action="install LLVM llvm-profdata/llvm-cov or run on Windows LLVM host",
+                    refs=["native_sim/results/coverage_summary.json"],
+                )
+            )
+        elif files:
+            details = []
+            low = []
+            for name, item in sorted(files.items()):
+                if not isinstance(item, dict):
+                    continue
+                pct = item.get("lines_percent")
+                details.append(f"{name} lines={pct}% funcs={item.get('functions_percent')}%")
+                if isinstance(pct, (int, float)) and pct < 90.0:
+                    low.append(f"{name}={pct}%")
+            findings.append(
+                _finding(
+                    "info" if not low else "optimize",
+                    "native_coverage",
+                    "native product core coverage",
+                    detail="; ".join(details),
+                    action="add native fuzz/unit cases for low-coverage branches" if low else "",
+                    refs=["native_sim/results/coverage_summary.json"],
+                )
+            )
 
     # --- R39: touch / layer skips / golden coverage gaps ---
     if touch.get("motion_planner") and profile == "quick":

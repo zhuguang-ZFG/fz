@@ -47,6 +47,8 @@ Last updated: 2026-07-16
 | R41 | Agent surface one-pager (装备清单) | **done** | `docs/AGENT_SURFACE.md` |
 | R42 | Product soft divergence policy A/C | **done** | `docs/PRODUCT_SOFT_DIVERGENCE.md` |
 | R43 | Native product BT/paper cores + ASan/UBSan | **done** | `native_sim/` + product core headers |
+| R44 | Native deterministic fuzz smoke | **done** | `native_sim/run_product_core_fuzz.py` + `agent_gate` |
+| R45 | Native product core coverage radar | **done** | `native_sim/run_product_core_coverage.py` + `agent_observe` |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 

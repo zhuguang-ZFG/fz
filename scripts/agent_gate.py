@@ -482,6 +482,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
 
     native_runner = FZ_ROOT / "native_sim" / "run_product_core_tests.py"
+    native_fuzz_runner = FZ_ROOT / "native_sim" / "run_product_core_fuzz.py"
+    native_coverage_runner = FZ_ROOT / "native_sim" / "run_product_core_coverage.py"
     if grbl is not None and native_runner.is_file():
         code, dur = _run(
             [
@@ -507,6 +509,70 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             Layer(
                 id="native_product",
                 name="native_product_core_asan_ubsan",
+                status="skip",
+                detail="GRBL_ROOT unavailable",
+            )
+        )
+
+    if grbl is not None and native_fuzz_runner.is_file():
+        code, dur = _run(
+            [
+                sys.executable,
+                str(native_fuzz_runner),
+                "--grbl-root",
+                str(grbl),
+                "--iterations",
+                "20000",
+            ]
+        )
+        layers.append(
+            Layer(
+                id="native_fuzz",
+                name="native_product_core_fuzz_asan_ubsan",
+                status="pass" if code == 0 else "fail",
+                exit_code=code,
+                duration_s=dur,
+                log_hint="native_sim/results/last_fuzz_report.json",
+                detail="deterministic fuzz smoke for BT/paper pure cores",
+            )
+        )
+    else:
+        layers.append(
+            Layer(
+                id="native_fuzz",
+                name="native_product_core_fuzz_asan_ubsan",
+                status="skip",
+                detail="GRBL_ROOT unavailable",
+            )
+        )
+
+    if grbl is not None and native_coverage_runner.is_file():
+        code, dur = _run(
+            [
+                sys.executable,
+                str(native_coverage_runner),
+                "--grbl-root",
+                str(grbl),
+                "--iterations",
+                "20000",
+            ]
+        )
+        layers.append(
+            Layer(
+                id="native_coverage",
+                name="native_product_core_coverage",
+                status="skip" if code == 2 else ("pass" if code == 0 else "fail"),
+                exit_code=code,
+                duration_s=dur,
+                log_hint="native_sim/results/coverage_summary.json",
+                detail="LLVM source coverage for BT/paper pure cores",
+            )
+        )
+    else:
+        layers.append(
+            Layer(
+                id="native_coverage",
+                name="native_product_core_coverage",
                 status="skip",
                 detail="GRBL_ROOT unavailable",
             )

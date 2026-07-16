@@ -84,6 +84,8 @@ jobs:
             protocol_sim/results/case_schema_last.json
             protocol_sim/results/soft_divergence.json
             native_sim/results/last_report.json
+            native_sim/results/last_fuzz_report.json
+            native_sim/results/coverage_summary.json
           if-no-files-found: warn
 
   # R32 (parked): Linux host SIL — opt-in only (low ROI vs Windows vendored sim).
@@ -138,6 +140,8 @@ jobs:
             protocol_sim/results/integrity_inject_last.json
             protocol_sim/results/case_schema_last.json
             native_sim/results/last_report.json
+            native_sim/results/last_fuzz_report.json
+            native_sim/results/coverage_summary.json
           if-no-files-found: warn
 
   agent-gate-standard:
@@ -193,4 +197,6 @@ jobs:
             protocol_sim/results/soft_divergence.json
             hardware_sim/results/last_hw_report.json
             native_sim/results/last_report.json
+            native_sim/results/last_fuzz_report.json
+            native_sim/results/coverage_summary.json
           if-no-files-found: warn
