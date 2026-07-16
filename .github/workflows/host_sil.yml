@@ -2,6 +2,9 @@
 # Windows: vendored grblHAL_sim.exe | Linux: build from grblHAL/Simulator (R32)
 name: host-sil
 
+env:
+  GRBL_ROOT: ${{ github.workspace }}/product-firmware
+
 on:
   push:
     branches: [main, master]
@@ -29,6 +32,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Checkout product firmware
+        uses: actions/checkout@v4
+        with:
+          repository: zhuguang-ZFG/Grbl_Esp32
+          ref: Branch_736afa70
+          path: product-firmware
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -73,6 +83,7 @@ jobs:
             protocol_sim/results/integrity_inject_last.json
             protocol_sim/results/case_schema_last.json
             protocol_sim/results/soft_divergence.json
+            native_sim/results/last_report.json
           if-no-files-found: warn
 
   # R32 (parked): Linux host SIL — opt-in only (low ROI vs Windows vendored sim).
@@ -84,6 +95,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Checkout product firmware
+        uses: actions/checkout@v4
+        with:
+          repository: zhuguang-ZFG/Grbl_Esp32
+          ref: Branch_736afa70
+          path: product-firmware
 
       - name: Install build tools
         run: |
@@ -119,6 +137,7 @@ jobs:
             protocol_sim/results/golden_last.json
             protocol_sim/results/integrity_inject_last.json
             protocol_sim/results/case_schema_last.json
+            native_sim/results/last_report.json
           if-no-files-found: warn
 
   agent-gate-standard:
@@ -128,6 +147,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Checkout product firmware
+        uses: actions/checkout@v4
+        with:
+          repository: zhuguang-ZFG/Grbl_Esp32
+          ref: Branch_736afa70
+          path: product-firmware
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -166,4 +192,5 @@ jobs:
             protocol_sim/results/integrity_inject_last.json
             protocol_sim/results/soft_divergence.json
             hardware_sim/results/last_hw_report.json
+            native_sim/results/last_report.json
           if-no-files-found: warn

@@ -20,6 +20,7 @@ fz/
   docs/specs/           # 设计文档
   protocol_sim/         # 协议 ok/error 回归（原 tools/sim_regression）
   hardware_sim/         # 硬件仿真优化实现区（StepOracle / plant，待建）
+  native_sim/           # 直接编译产品 BT/纸路纯核心（ASan/UBSan）
   vendor/grblhal_sim/   # grblHAL_sim Windows 二进制 + 运行库
   scripts/              # 构建/一键入口
 ```
@@ -44,6 +45,7 @@ fz/
 # ★ Agent vibe coding（首选：改完代码主动跑，少烧录）
 $env:GRBL_ROOT='D:\Users\Grbl_Esp32'
 python scripts/agent_gate.py
+python native_sim/run_product_core_tests.py  # 真实产品纯核心，不是替代模型
 # R21: integrity+protocol share one sim; --no-shared-sim to disable
 python scripts/agent_loop.py --profile standard    # gate→失败重跑→再 gate
 python scripts/release_honesty.py --require-agent-gate --allow-pending-hil  # 发版诚实度

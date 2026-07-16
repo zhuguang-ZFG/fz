@@ -1,7 +1,9 @@
 # Runtime
 protocol_sim/results/*.json
 hardware_sim/results/*
+native_sim/results/*
 !hardware_sim/results/.gitkeep
+!native_sim/results/.gitkeep
 !protocol_sim/results/.gitkeep
 release/bundles/
 results/

@@ -278,6 +278,11 @@ def agent_hints_for_failures(layers: List[Layer]) -> List[str]:
             )
         elif L.id == "units":
             hints.append("Fix unit tests under sim_common/hardware_sim/hil/chip_sim.")
+        elif L.id == "native_product":
+            hints.append(
+                "Native product core failed under ASan/UBSan. Read native_sim/results/last_report.json; "
+                "re-run: python native_sim/run_product_core_tests.py"
+            )
         elif L.id == "case_schema":
             hints.append(
                 "protocol JSON case structure invalid — fix cases under "
@@ -462,6 +467,37 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             log_hint="python -m unittest discover -s sim_common -q",
         )
     )
+
+    native_runner = FZ_ROOT / "native_sim" / "run_product_core_tests.py"
+    if grbl is not None and native_runner.is_file():
+        code, dur = _run(
+            [
+                sys.executable,
+                str(native_runner),
+                "--grbl-root",
+                str(grbl),
+            ]
+        )
+        layers.append(
+            Layer(
+                id="native_product",
+                name="native_product_core_asan_ubsan",
+                status="pass" if code == 0 else "fail",
+                exit_code=code,
+                duration_s=dur,
+                log_hint="native_sim/results/last_report.json",
+                detail="product-owned BT/paper pure cores",
+            )
+        )
+    else:
+        layers.append(
+            Layer(
+                id="native_product",
+                name="native_product_core_asan_ubsan",
+                status="skip",
+                detail="GRBL_ROOT unavailable",
+            )
+        )
 
     # R21: one protocol-mode sim for integrity + protocol (hardware still own process)
     use_shared = not bool(getattr(args, "no_shared_sim", False))

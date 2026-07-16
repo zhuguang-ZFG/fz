@@ -29,7 +29,10 @@ Agent **没有**被赋予「数字孪生整机」或「大厂云仿真 API」；
 │  失败面 R34–R35   triage + FAIL SLICES                    │
 ├─────────────────────────────────────────────────────────┤
 │  门禁 agent_gate   case_schema / integrity / protocol /   │
-│                    soft_allowlist / (+ hardware on std)   │
+│                    native product / soft / (+ hw on std)  │
+├─────────────────────────────────────────────────────────┤
+│  产品纯核心 native_sim  BT/纸路 reducer/ring/timing       │
+│                    ASan/UBSan（≠ Arduino 全栈/HIL）       │
 ├─────────────────────────────────────────────────────────┤
 │  引擎 grblHAL_sim  TCP host SIL（≠ 产品 Arduino 全栈）     │
 ├─────────────────────────────────────────────────────────┤
@@ -54,7 +57,7 @@ Agent **没有**被赋予「数字孪生整机」或「大厂云仿真 API」；
 
 ## 4. 能力边界（护栏，不是削弱）
 
-**能发现（免真机）：** 解析错误、模态、缺 F、坏数字、假绿 harness、金样回归、产品 soft 分歧、该跑 standard 却只跑了 quick、无 HIL 证据却想签字。
+**能发现（免真机）：** 解析错误、模态、缺 F、坏数字、假绿 harness、金样回归、产品 soft 分歧，以及产品 BT/纸路纯核心的内存、FIFO、时序边界和毫秒回绕错误。
 
 **不能假装发现：** 纸路机械、按键手感、真 BT 空中、真 Wi‑Fi OTA、电源/射频。这些只能 **HIL 或诚实 pending**。
 
