@@ -56,6 +56,14 @@ def _coverage_build_command(compiler: Path, grbl_root: Path, output: Path) -> Li
     ]
 
 
+def _runtime_path_entries(compiler: Path) -> List[str]:
+    entries = [str(compiler.parent)]
+    runtime_dir = native_tests.sanitizer_runtime_dir(compiler, "clang")
+    if runtime_dir is not None:
+        entries.append(str(runtime_dir))
+    return entries
+
+
 def _percent(summary: Dict[str, Any], key: str) -> Optional[float]:
     section = summary.get(key)
     if not isinstance(section, dict):
@@ -124,6 +132,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "compiler_kind": kind,
         "llvm_profdata": str(profdata_tool) if profdata_tool else None,
         "llvm_cov": str(cov_tool) if cov_tool else None,
+        "runtime_path_entries": [],
         "seed": args.seed,
         "iterations": args.iterations,
         "files": {},
@@ -155,6 +164,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
 
     run_env = os.environ.copy()
+    runtime_entries = _runtime_path_entries(compiler)
+    report["runtime_path_entries"] = runtime_entries
+    run_env["PATH"] = os.pathsep.join(runtime_entries + [run_env.get("PATH", "")])
     run_env["LLVM_PROFILE_FILE"] = str(profraw)
     run = subprocess.run(
         [str(output), str(args.seed), str(args.iterations)],
