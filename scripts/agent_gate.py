@@ -44,6 +44,19 @@ RESULTS = FZ_ROOT / "results"
 REPORT_PATH = RESULTS / "agent_gate_last.json"
 
 
+def _configure_console_encoding() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
+
+
+_configure_console_encoding()
+
+
 @dataclass
 class Layer:
     id: str
