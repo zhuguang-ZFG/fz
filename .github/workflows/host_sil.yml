@@ -45,6 +45,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install MCP SDK
+        run: python -m pip install -r requirements-mcp.txt
+
       - name: Preflight sim binary
         shell: pwsh
         run: |
@@ -86,6 +89,10 @@ jobs:
             native_sim/results/last_report.json
             native_sim/results/last_fuzz_report.json
             native_sim/results/coverage_summary.json
+            hardware_sim/results/machine_pin_erc.json
+            xiaozhi_sim/results/protocol_campaign.json
+            xiaozhi_sim/results/firmware_contract.json
+            results/qwen_gate_last.json
           if-no-files-found: warn
 
   # R32 (parked): Linux host SIL — opt-in only (low ROI vs Windows vendored sim).
@@ -115,6 +122,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install MCP SDK
+        run: python -m pip install -r requirements-mcp.txt
+
       - name: Build grblHAL_sim (Linux)
         run: bash scripts/build_grblhal_sim.sh
 
@@ -142,6 +152,10 @@ jobs:
             native_sim/results/last_report.json
             native_sim/results/last_fuzz_report.json
             native_sim/results/coverage_summary.json
+            hardware_sim/results/machine_pin_erc.json
+            xiaozhi_sim/results/protocol_campaign.json
+            xiaozhi_sim/results/firmware_contract.json
+            results/qwen_gate_last.json
           if-no-files-found: warn
 
   agent-gate-standard:
@@ -163,6 +177,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Install MCP SDK
+        run: python -m pip install -r requirements-mcp.txt
 
       - name: Preflight sim binary
         shell: pwsh
@@ -199,4 +216,8 @@ jobs:
             native_sim/results/last_report.json
             native_sim/results/last_fuzz_report.json
             native_sim/results/coverage_summary.json
+            hardware_sim/results/machine_pin_erc.json
+            xiaozhi_sim/results/protocol_campaign.json
+            xiaozhi_sim/results/firmware_contract.json
+            results/qwen_gate_last.json
           if-no-files-found: warn

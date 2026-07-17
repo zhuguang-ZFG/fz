@@ -29,6 +29,7 @@ Does NOT claim product paper/BT/OTA. Those need hil_to_gate + evidence YAML.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import subprocess
@@ -481,6 +482,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
     )
 
+    mcp_spec = importlib.util.find_spec("mcp")
+    if mcp_spec is not None:
+        code, dur = _run([sys.executable, "-m", "unittest", "scripts.test_fz_mcp_server", "scripts.test_fz_mcp_stdio", "-q"])
+        layers.append(
+            Layer(
+                id="mcp_stdio",
+                name="official_mcp_stdio_contract",
+                status="pass" if code == 0 else "fail",
+                exit_code=code,
+                duration_s=dur,
+                log_hint="python -m unittest scripts.test_fz_mcp_server scripts.test_fz_mcp_stdio -q",
+                detail="official MCP SDK initialization, tools, structured errors, resources, and stdio subprocess handshake",
+            )
+        )
+    else:
+        layers.append(
+            Layer(
+                id="mcp_stdio",
+                name="official_mcp_stdio_contract",
+                status="skip",
+                detail="optional dependency missing: pip install -r requirements-mcp.txt",
+            )
+        )
+
     code, dur = _run(
         [sys.executable, str(FZ_ROOT / "native_sim" / "validate_protocol_scenarios.py")]
     )
@@ -549,6 +574,54 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
     )
 
+    xiaozhi_runner = FZ_ROOT / "xiaozhi_sim" / "run_protocol_campaign.py"
+    if xiaozhi_runner.is_file():
+        code, dur = _run([sys.executable, "-m", "unittest", "discover", "-s", "xiaozhi_sim", "-p", "test_*.py", "-q"])
+        layers.append(
+            Layer(
+                id="xiaozhi_units",
+                name="xiaozhi_protocol_unittest",
+                status="pass" if code == 0 else "fail",
+                exit_code=code,
+                duration_s=dur,
+                log_hint="python -m unittest discover -s xiaozhi_sim -p test_*.py -q",
+                detail="LiMa product-fork WebSocket/MCP ordering model and shrinker contracts",
+            )
+        )
+        code, dur = _run([sys.executable, str(xiaozhi_runner)])
+        layers.append(
+            Layer(
+                id="xiaozhi_protocol",
+                name="deterministic_xiaozhi_protocol_campaign",
+                status="pass" if code == 0 else "fail",
+                exit_code=code,
+                duration_s=dur,
+                log_hint="xiaozhi_sim/results/protocol_campaign.json",
+                detail="hello/listen/TTS/MCP plus disconnect, loss, reorder, duplicate, and stale-session scenarios",
+            )
+        )
+        qwen_root = Path(os.environ.get("QWEN_ROOT", "D:/QWEN3.0"))
+        xiaozhi_contract = FZ_ROOT / "xiaozhi_sim" / "run_firmware_contract.py"
+        if xiaozhi_contract.is_file() and (qwen_root / "esp32S_XYZ" / "firmware" / "u8-xiaozhi").is_dir():
+            code, dur = _run([sys.executable, str(xiaozhi_contract), "--qwen-root", str(qwen_root)])
+            layers.append(
+                Layer(
+                    id="xiaozhi_contract",
+                    name="xiaozhi_firmware_model_contract",
+                    status="pass" if code == 0 else "fail",
+                    exit_code=code,
+                    duration_s=dur,
+                    log_hint="xiaozhi_sim/results/firmware_contract.json",
+                    detail="product hello_ack/PCM/capability/message-family drift guard",
+                )
+            )
+        else:
+            layers.append(Layer(id="xiaozhi_contract", name="xiaozhi_firmware_model_contract", status="skip", detail="QWEN Xiaozhi firmware unavailable"))
+    else:
+        layers.append(Layer(id="xiaozhi_units", name="xiaozhi_protocol_unittest", status="skip", detail="Xiaozhi model unavailable"))
+        layers.append(Layer(id="xiaozhi_protocol", name="deterministic_xiaozhi_protocol_campaign", status="skip", detail="Xiaozhi runner unavailable"))
+        layers.append(Layer(id="xiaozhi_contract", name="xiaozhi_firmware_model_contract", status="skip", detail="Xiaozhi runner unavailable"))
+
     qwen_adapter = FZ_ROOT / "scripts" / "qwen_evidence_adapter.py"
     qwen_root = Path(os.environ.get("QWEN_ROOT", "D:/QWEN3.0"))
     if qwen_adapter.is_file() and (qwen_root / "AGENTS.md").is_file():
@@ -572,7 +645,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 exit_code=code,
                 duration_s=dur,
                 log_hint="results/qwen_gate_last.json",
-                detail="QWEN existing pytest/FakeDevice/drawing contracts; not a replacement for fz or HIL",
+                detail="QWEN existing pytest/FakeDevice/drawing/voice contracts; not a replacement for fz or HIL",
             )
         )
     else:
@@ -619,6 +692,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     native_model_runner = FZ_ROOT / "native_sim" / "run_product_model_check.py"
     native_coverage_runner = FZ_ROOT / "native_sim" / "run_product_core_coverage.py"
     paper_contract_runner = FZ_ROOT / "hardware_sim" / "run_paper_firmware_contract.py"
+    machine_pin_erc_runner = FZ_ROOT / "hardware_sim" / "run_machine_pin_erc.py"
+    if grbl is not None and machine_pin_erc_runner.is_file():
+        code, dur = _run([sys.executable, str(machine_pin_erc_runner), "--grbl-root", str(grbl)])
+        layers.append(
+            Layer(
+                id="machine_pin_erc",
+                name="eda_style_machine_pin_erc",
+                status="pass" if code == 0 else "fail",
+                exit_code=code,
+                duration_s=dur,
+                log_hint="hardware_sim/results/machine_pin_erc.json",
+                detail="firmware pin-map drift, collision, electrical-class, strapping, alias, and I2S expander checks",
+            )
+        )
+    else:
+        layers.append(Layer(id="machine_pin_erc", name="eda_style_machine_pin_erc", status="skip", detail="GRBL_ROOT unavailable"))
     if grbl is not None and paper_contract_runner.is_file():
         code, dur = _run([sys.executable, str(paper_contract_runner), "--grbl-root", str(grbl)])
         layers.append(

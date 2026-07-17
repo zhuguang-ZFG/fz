@@ -15,7 +15,9 @@ SPEC.loader.exec_module(ADAPTER)
 class TestQwenEvidenceAdapter(unittest.TestCase):
     def test_profiles_are_fixed_existing_test_targets(self) -> None:
         self.assertIn("standard", ADAPTER.PROFILES)
+        self.assertIn("voice_contract", ADAPTER.PROFILES)
         self.assertIn("tests/test_firmware_hardware_gate.py", ADAPTER.PROFILES["standard"])
+        self.assertIn("tests/test_device_app_voice_ws.py", ADAPTER.PROFILES["standard"])
         self.assertTrue(all(path.startswith("tests/") for path in ADAPTER.PROFILES["standard"]))
 
     def test_summary_parser_counts_pytest_outcomes(self) -> None:

@@ -120,6 +120,45 @@ class TestAgentObserve(unittest.TestCase):
         self.assertEqual(finding["severity"], "hard")
         self.assertIn("persistent_jam_times_out", finding["detail"])
 
+    def test_machine_pin_failure_surfaces_action(self) -> None:
+        import importlib.util
+
+        path = FZ / "scripts" / "agent_observe.py"
+        spec = importlib.util.spec_from_file_location("agent_observe", path)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        findings = mod._machine_pin_findings(
+            {
+                "status": "fail",
+                "errors": [{"kind": "uncontracted_pin_macro", "macros": {"NEW_PIN": "GPIO22"}}],
+                "next_actions": ["Classify the new pin macro as a role or alias."],
+            }
+        )
+        self.assertEqual(findings[0]["severity"], "hard")
+        self.assertIn("NEW_PIN", findings[0]["detail"])
+        self.assertIn("Classify", findings[0]["detail"])
+        self.assertEqual(findings[0]["action"], "python hardware_sim/run_machine_pin_erc.py")
+
+    def test_machine_pin_pass_surfaces_coverage_and_waivers(self) -> None:
+        import importlib.util
+
+        path = FZ / "scripts" / "agent_observe.py"
+        spec = importlib.util.spec_from_file_location("agent_observe", path)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        findings = mod._machine_pin_findings(
+            {
+                "status": "pass",
+                "coverage": {"resolvable_pin_macros": 28, "contracted_pin_macros": 28, "percent": 100.0},
+                "waivers": [{}, {}, {}],
+            }
+        )
+        self.assertEqual(findings[0]["severity"], "info")
+        self.assertIn("28/28", findings[0]["detail"])
+        self.assertIn("waivers=3", findings[0]["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

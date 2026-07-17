@@ -31,6 +31,8 @@ CLAIMS_FORBIDDEN = [
     "wifi_ota_verified",
     "product_flash_ok",
     "chip_qemu_app_ok",
+    "xiaozhi_real_audio_verified",
+    "xiaozhi_cloud_voice_verified",
 ]
 REPORTS = {
     "gate": RESULTS / "agent_gate_last.json",
@@ -42,6 +44,7 @@ REPORTS = {
     "paper_interactions": FZ_ROOT / "hardware_sim" / "results" / "paper_plant_interactions.json",
     "paper_transients": FZ_ROOT / "hardware_sim" / "results" / "paper_plant_transients.json",
     "paper_contract": FZ_ROOT / "hardware_sim" / "results" / "paper_firmware_contract.json",
+    "machine_pin_erc": FZ_ROOT / "hardware_sim" / "results" / "machine_pin_erc.json",
     "native": FZ_ROOT / "native_sim" / "results" / "last_report.json",
     "native_fuzz": FZ_ROOT / "native_sim" / "results" / "last_fuzz_report.json",
     "native_coverage": FZ_ROOT / "native_sim" / "results" / "coverage_summary.json",
@@ -50,6 +53,8 @@ REPORTS = {
     "protocol_scenarios": FZ_ROOT / "native_sim" / "results" / "protocol_scenarios.json",
     "protocol_scenario_schema": FZ_ROOT / "native_sim" / "results" / "protocol_scenario_schema.json",
     "qwen_gate": FZ_ROOT / "results" / "qwen_gate_last.json",
+    "xiaozhi_protocol": FZ_ROOT / "xiaozhi_sim" / "results" / "protocol_campaign.json",
+    "xiaozhi_firmware_contract": FZ_ROOT / "xiaozhi_sim" / "results" / "firmware_contract.json",
 }
 HARDWARE_BUILTINS = [
     "move_x_10",
@@ -105,6 +110,14 @@ OPERATION_SCHEMAS = {
         },
         "additionalProperties": False,
     },
+    "run_machine_pin_erc": {
+        "type": "object",
+        "properties": {
+            "grbl_root": {"type": "string", "minLength": 1},
+            "timeout_s": {"type": "number", "exclusiveMinimum": 0, "maximum": MAX_TIMEOUT_S},
+        },
+        "additionalProperties": False,
+    },
     "run_paper_transients": {
         "type": "object",
         "properties": {
@@ -116,11 +129,25 @@ OPERATION_SCHEMAS = {
     "run_qwen_gate": {
         "type": "object",
         "properties": {
-            "profile": {"type": "string", "enum": ["firmware_contract", "motion_contract", "drawing_e2e", "standard"]},
+            "profile": {
+                "type": "string",
+                "enum": ["firmware_contract", "motion_contract", "drawing_e2e", "voice_contract", "standard"],
+            },
             "timeout_s": {"type": "number", "exclusiveMinimum": 0, "maximum": MAX_TIMEOUT_S},
         },
         "additionalProperties": False,
-    },    "list_scenarios": {"type": "object", "additionalProperties": False},
+    },
+    "run_xiaozhi_protocol": {
+        "type": "object",
+        "properties": {"timeout_s": {"type": "number", "exclusiveMinimum": 0, "maximum": MAX_TIMEOUT_S}},
+        "additionalProperties": False,
+    },
+    "run_xiaozhi_contract": {
+        "type": "object",
+        "properties": {"timeout_s": {"type": "number", "exclusiveMinimum": 0, "maximum": MAX_TIMEOUT_S}},
+        "additionalProperties": False,
+    },
+    "list_scenarios": {"type": "object", "additionalProperties": False},
     "run_scenarios": {
         "type": "object",
         "properties": {
@@ -362,13 +389,13 @@ def _run(command: List[str], timeout_s: float) -> Dict[str, Any]:
     }
 
 
-QWEN_PROFILES = ("firmware_contract", "motion_contract", "drawing_e2e", "standard")
+QWEN_PROFILES = ("firmware_contract", "motion_contract", "drawing_e2e", "voice_contract", "standard")
 
 def describe() -> Dict[str, Any]:
     return {
         "operations": OPERATION_SCHEMAS,
         "reports": {name: path.relative_to(FZ_ROOT).as_posix() for name, path in REPORTS.items()},
-        "mcp_mapping": {"tools": ["run_gate", "rerun_cases", "run_product_trace", "run_differential", "run_scenarios", "run_paper_plant", "run_paper_interactions", "run_paper_transients", "run_paper_contract", "run_qwen_gate"], "resources": ["describe", "list_cases", "list_scenarios", "list_qwen_profiles", "read_report"]},
+        "mcp_mapping": {"tools": ["run_gate", "rerun_cases", "run_product_trace", "run_differential", "run_scenarios", "run_paper_plant", "run_paper_interactions", "run_paper_transients", "run_paper_contract", "run_machine_pin_erc", "run_qwen_gate", "run_xiaozhi_protocol", "run_xiaozhi_contract"], "resources": ["describe", "list_cases", "list_scenarios", "list_qwen_profiles", "read_report"]},
     }
 
 
@@ -462,6 +489,16 @@ def dispatch(request: Dict[str, Any]) -> Dict[str, Any]:
             execution = _run(command, timeout_s)
         report = _load_json(request_report)
         return _envelope(request_id, operation, execution["exit_code"] == 0, execution=execution, result=report)
+    if operation == "run_machine_pin_erc":
+        timeout_s = _validated_timeout(params.get("timeout_s", 120))
+        grbl_root = Path(str(params.get("grbl_root") or os.environ.get("GRBL_ROOT") or "D:/Users/Grbl_Esp32")).resolve()
+        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
+        request_report = RESULTS / "paper_plant_requests" / f"{report_key}-machine-pin-erc.json"
+        command = [sys.executable, str(FZ_ROOT / "hardware_sim" / "run_machine_pin_erc.py"), "--grbl-root", str(grbl_root), "--json-out", str(request_report)]
+        with _execution_lock(request_id, operation):
+            execution = _run(command, timeout_s)
+        report = _load_json(request_report)
+        return _envelope(request_id, operation, execution["exit_code"] == 0, execution=execution, result=report)
     if operation == "run_paper_transients":
         timeout_s = _validated_timeout(params.get("timeout_s", 120))
         report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
@@ -507,6 +544,25 @@ def dispatch(request: Dict[str, Any]) -> Dict[str, Any]:
         with _execution_lock(request_id, operation):
             execution = _run(command, timeout_s + 30)
         report = _load_json(REPORTS["qwen_gate"])
+        return _envelope(request_id, operation, execution["exit_code"] == 0, execution=execution, result=report)
+    if operation == "run_xiaozhi_protocol":
+        timeout_s = _validated_timeout(params.get("timeout_s", 120))
+        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
+        request_report = RESULTS / "xiaozhi_requests" / f"{report_key}.json"
+        command = [sys.executable, str(FZ_ROOT / "xiaozhi_sim" / "run_protocol_campaign.py"), "--json-out", str(request_report)]
+        with _execution_lock(request_id, operation):
+            execution = _run(command, timeout_s)
+        report = _load_json(request_report)
+        return _envelope(request_id, operation, execution["exit_code"] == 0, execution=execution, result=report)
+    if operation == "run_xiaozhi_contract":
+        timeout_s = _validated_timeout(params.get("timeout_s", 120))
+        qwen_root = Path(os.environ.get("QWEN_ROOT", "D:/QWEN3.0")).resolve()
+        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
+        request_report = RESULTS / "xiaozhi_requests" / f"{report_key}-contract.json"
+        command = [sys.executable, str(FZ_ROOT / "xiaozhi_sim" / "run_firmware_contract.py"), "--qwen-root", str(qwen_root), "--json-out", str(request_report)]
+        with _execution_lock(request_id, operation):
+            execution = _run(command, timeout_s)
+        report = _load_json(request_report)
         return _envelope(request_id, operation, execution["exit_code"] == 0, execution=execution, result=report)
     if operation == "run_scenarios":
         available = _protocol_scenarios()

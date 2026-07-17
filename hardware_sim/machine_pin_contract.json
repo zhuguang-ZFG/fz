@@ -1,0 +1,43 @@
+{
+  "version": 2,
+  "machine": "Grbl_Esp32/src/Machines/custom_3axis_hr4988.h",
+  "i2so_width": 8,
+  "roles": {
+    "I2S_OUT_DATA": {"endpoint": "GPIO21", "direction": "output"},
+    "I2S_OUT_BCK": {"endpoint": "GPIO16", "direction": "output"},
+    "I2S_OUT_WS": {"endpoint": "GPIO17", "direction": "output"},
+    "PAPER_LED_PIN": {"endpoint": "I2SO0", "direction": "output"},
+    "PAPER_PANEL_ENABLE_PIN": {"endpoint": "I2SO1", "direction": "output"},
+    "PAPER_DRIVER_ENABLE_PIN": {"endpoint": "GPIO26", "direction": "output"},
+    "PAPER_DRIVER_REF_PIN": {"endpoint": "GPIO25", "direction": "dac_output"},
+    "CLAMP_MOTOR_DIR_PIN": {"endpoint": "I2SO2", "direction": "output"},
+    "CLAMP_MOTOR_STEP_PIN": {"endpoint": "I2SO3", "direction": "output"},
+    "PANEL_MOTOR_DIR_PIN": {"endpoint": "I2SO4", "direction": "output"},
+    "PANEL_MOTOR_STEP_PIN": {"endpoint": "I2SO5", "direction": "output"},
+    "FEEDER_MOTOR_DIR_PIN": {"endpoint": "I2SO6", "direction": "output"},
+    "FEEDER_MOTOR_STEP_PIN": {"endpoint": "I2SO7", "direction": "output"},
+    "PAPER_SENSOR_PIN": {"endpoint": "GPIO34", "direction": "input"},
+    "PAPER_CHANGE_BTN_PIN": {"endpoint": "GPIO35", "direction": "input"},
+    "X_STEP_PIN": {"endpoint": "GPIO2", "direction": "output"},
+    "X_DIRECTION_PIN": {"endpoint": "GPIO15", "direction": "output"},
+    "Y_STEP_PIN": {"endpoint": "GPIO13", "direction": "output"},
+    "Y_DIRECTION_PIN": {"endpoint": "GPIO12", "direction": "output"},
+    "Z_STEP_PIN": {"endpoint": "GPIO14", "direction": "output"},
+    "Z_DIRECTION_PIN": {"endpoint": "GPIO27", "direction": "output"},
+    "STEPPERS_DISABLE_PIN": {"endpoint": "GPIO4", "direction": "output"}
+  },
+  "aliases": {
+    "PAPER_ENABLE_PIN": "PAPER_PANEL_ENABLE_PIN",
+    "MACRO_BUTTON_0_PIN": "PAPER_CHANGE_BTN_PIN",
+    "USER_DIGITAL_PIN_0": "PAPER_ENABLE_PIN",
+    "USER_DIGITAL_PIN_1": "CLAMP_MOTOR_DIR_PIN",
+    "USER_DIGITAL_PIN_2": "PANEL_MOTOR_DIR_PIN",
+    "USER_DIGITAL_PIN_3": "FEEDER_MOTOR_DIR_PIN"
+  },
+  "strapping_output_waivers": {
+    "X_STEP_PIN": {"endpoint": "GPIO2", "reason": "Legacy product assignment accepted as the host ERC baseline; boot-state electrical validation remains HIL."},
+    "X_DIRECTION_PIN": {"endpoint": "GPIO15", "reason": "Legacy product assignment accepted as the host ERC baseline; boot-state electrical validation remains HIL."},
+    "Y_DIRECTION_PIN": {"endpoint": "GPIO12", "reason": "Legacy product assignment accepted as the host ERC baseline; boot-state electrical validation remains HIL."}
+  },
+  "evidence_boundary": "EDA-style static firmware pin-map ERC; validates declared net identity and ESP32 electrical classes, not schematic copper, voltage levels, timing, signal integrity, assembly, or HIL"
+}

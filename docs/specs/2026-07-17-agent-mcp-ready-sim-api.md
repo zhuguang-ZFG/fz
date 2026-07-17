@@ -42,7 +42,10 @@ Initial operations:
 | `run_differential` | tool | Compare that policy with isolated grblHAL responses |
 | `run_scenarios` | tool | Run whitelisted scenarios and return minimal failure evidence |
 | `list_qwen_profiles` | resource | Discover existing QWEN evidence profiles |
-| `run_qwen_gate` | tool | Run fixed QWEN pytest/FakeDevice/drawing evidence profile |
+| `run_qwen_gate` | tool | Run fixed QWEN pytest/FakeDevice/drawing/voice evidence profile |
+| `run_xiaozhi_protocol` | tool | Run deterministic LiMa/Xiaozhi WebSocket/MCP state and network-fault scenarios |
+| `run_xiaozhi_contract` | tool | Detect LiMa Xiaozhi firmware/model protocol drift from fixed source anchors |
+| `run_machine_pin_erc` | tool | Run EDA-style pin drift, collision, ESP32 electrical-class, strapping, I2S range, and alias checks |
 
 The product trace supports a fixed `stateful_modal` switch that emits per-line
 `modal_before`/`modal_after` evidence for scenario replay. The product trace/
@@ -52,18 +55,24 @@ tails plus structured report content.
 The CLI forces stdin/stdout/stderr to UTF-8 so stdio transports remain valid JSON
 on Windows hosts whose inherited console encoding is GBK.
 
-## Future MCP adapter
+## MCP adapter
 
-Use the stable SDK line (`mcp>=1.27,<2`) until v2 is stable. Map tools/resources
-directly to `agent_api.handle()` or typed wrappers around `dispatch()`; do not
-duplicate subprocess construction in the MCP layer. Start with stdio for local
-agents. Add Streamable HTTP only after authentication, workspace allowlisting,
-concurrency policy, cancellation, and artifact retention are designed.
+`scripts/fz_mcp_server.py` implements the local stdio adapter with the stable SDK
+line (`mcp>=1.27,<2`). Tools/resources delegate directly to
+`agent_api.handle()` and do not duplicate subprocess construction. Tool results
+provide structured content and MCP error status; resources use fixed `fz://`
+URIs. Streamable HTTP remains deferred until authentication, workspace
+allowlisting, concurrency policy, cancellation, and artifact retention are
+designed.
 
 ## Deliberate limits
 
 - Host SIL does not prove paper mechanics, real Bluetooth, Wi-Fi OTA, product
   flashing, or successful QEMU application boot.
+- Xiaozhi protocol SIL treats binary audio as opaque frames; it does not prove
+  Opus fidelity, microphones, speakers, cloud ASR/TTS, ESP32 scheduling, or RF.
+- Machine pin ERC checks firmware declarations, not schematic copper, voltage
+  levels, timing, signal integrity, assembly, or physical hardware behavior.
 - The API does not expose arbitrary commands or arbitrary filesystem reads.
 - The first version serializes execution; read-only discovery/report calls remain
   available without acquiring the execution lock.

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "firmware_root": "esp32S_XYZ/firmware/u8-xiaozhi",
+  "expected": {
+    "protocol": "lima-device-v1",
+    "client_hello_type": "hello",
+    "server_hello_type": "hello_ack",
+    "audio": {
+      "format": "pcm",
+      "sample_rate": 16000,
+      "channels": 1,
+      "sample_width": 2,
+      "frame_duration": 60
+    },
+    "capabilities": ["audio", "run_path", "device_info", "self_check"],
+    "incoming_types": ["hello_ack", "voice_status", "audio_reply", "tts", "stt", "llm", "mcp", "motion_task", "system", "alert", "custom"]
+  },
+  "evidence_boundary": "source-anchor drift contract for the LiMa Xiaozhi firmware fork and fz model; not a compiler proof, wire capture, audio fidelity test, cloud test, or HIL"
+}

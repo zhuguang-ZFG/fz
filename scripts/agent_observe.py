@@ -106,6 +106,37 @@ def _paper_transient_finding(report: Any) -> Optional[Dict[str, Any]]:
     )
 
 
+def _machine_pin_findings(report: Any) -> List[Dict[str, Any]]:
+    if not isinstance(report, dict):
+        return []
+    coverage = report.get("coverage") if isinstance(report.get("coverage"), dict) else {}
+    if report.get("status") == "fail":
+        errors = report.get("errors") if isinstance(report.get("errors"), list) else []
+        actions = report.get("next_actions") if isinstance(report.get("next_actions"), list) else []
+        detail = {"errors": errors[:5], "remediation": actions[:3]}
+        return [
+            _finding(
+                "hard",
+                "machine_pin_erc",
+                "machine pin ERC failed closed",
+                detail=json.dumps(detail, ensure_ascii=False, sort_keys=True),
+                action="python hardware_sim/run_machine_pin_erc.py",
+                refs=["hardware_sim/results/machine_pin_erc.json", "hardware_sim/machine_pin_contract.json"],
+            )
+        ]
+    if report.get("status") == "pass":
+        return [
+            _finding(
+                "info",
+                "machine_pin_erc",
+                "machine pin contract coverage",
+                detail=f"{coverage.get('contracted_pin_macros', 0)}/{coverage.get('resolvable_pin_macros', 0)} macros ({coverage.get('percent', 0)}%); waivers={len(report.get('waivers') or [])}",
+                refs=["hardware_sim/results/machine_pin_erc.json"],
+            )
+        ]
+    return []
+
+
 def _fail_stems_without_golden() -> List[str]:
     """R39: fail cases that lack a matching golden_* contract (coverage gap)."""
     fail_dir = FZ_ROOT / "protocol_sim" / "cases" / "fail"
@@ -142,6 +173,7 @@ def build_observe() -> Dict[str, Any]:
     native_cov = _read_json(FZ_ROOT / "native_sim" / "results" / "coverage_summary.json") or {}
     paper_interactions = _read_json(FZ_ROOT / "hardware_sim" / "results" / "paper_plant_interactions.json") or {}
     paper_contract = _read_json(FZ_ROOT / "hardware_sim" / "results" / "paper_firmware_contract.json") or {}
+    machine_pin_erc = _read_json(FZ_ROOT / "hardware_sim" / "results" / "machine_pin_erc.json") or {}
     paper_transients = _read_json(FZ_ROOT / "hardware_sim" / "results" / "paper_plant_transients.json") or {}
     triage = _read_json(RESULTS / "triage_last.json") or {}
     integrity = _read_json(
@@ -180,6 +212,7 @@ def build_observe() -> Dict[str, Any]:
     paper_transient_finding = _paper_transient_finding(paper_transients)
     if paper_transient_finding is not None:
         findings.append(paper_transient_finding)
+    findings.extend(_machine_pin_findings(machine_pin_erc))
 
     for c in (triage.get("protocol_failures") if isinstance(triage, dict) else None) or []:
         if not isinstance(c, dict):
@@ -668,6 +701,11 @@ def build_observe() -> Dict[str, Any]:
                 len(hw_rep.get("cases") or [])
                 if isinstance(hw_rep, dict)
                 else 0
+            ),
+            "machine_pin_contract_coverage_percent": (
+                (machine_pin_erc.get("coverage") or {}).get("percent")
+                if isinstance(machine_pin_erc, dict)
+                else None
             ),
         },
         "findings": findings,

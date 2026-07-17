@@ -32,6 +32,9 @@ class TestAgentApi(unittest.TestCase):
         self.assertTrue(response["ok"])
         self.assertEqual(response["request_id"], "r1")
         self.assertIn("run_gate", response["result"]["mcp_mapping"]["tools"])
+        self.assertIn("run_machine_pin_erc", response["result"]["mcp_mapping"]["tools"])
+        self.assertIn("machine_pin_erc", response["result"]["reports"])
+        self.assertIn("xiaozhi_real_audio_verified", response["claims_forbidden"])
         self.assertIn("read_report", response["result"]["mcp_mapping"]["resources"])
         self.assertIn("paper_path_verified", response["claims_forbidden"])
         self.assertEqual(
@@ -250,6 +253,20 @@ class TestAgentApi(unittest.TestCase):
         self.assertEqual(command[-2:], ["--json-out", str(request_report)])
         self.assertEqual(timeout, 10.0)
 
+    def test_run_machine_pin_erc_uses_fixed_runner_and_report(self) -> None:
+        request_id = "machine-pin-erc-test"
+        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
+        request_report = API.RESULTS / "paper_plant_requests" / f"{report_key}-machine-pin-erc.json"
+        request_report.parent.mkdir(parents=True, exist_ok=True)
+        request_report.write_text(json.dumps({"status": "pass", "errors": []}), encoding="utf-8")
+        with mock.patch.object(API, "_run", return_value={"exit_code": 0, "duration_s": 1.0, "stdout_tail": "", "stderr_tail": ""}) as run:
+            response = API.handle({"request_id": request_id, "operation": "run_machine_pin_erc", "params": {"grbl_root": "D:/Users/Grbl_Esp32", "timeout_s": 10}})
+        self.assertTrue(response["ok"])
+        command, timeout = run.call_args.args
+        self.assertIn("run_machine_pin_erc.py", command[1])
+        self.assertEqual(command[-2:], ["--json-out", str(request_report)])
+        self.assertEqual(timeout, 10.0)
+
     def test_run_paper_contract_uses_fixed_runner_and_report(self) -> None:
         request_id = "contract-test"
         report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
@@ -294,6 +311,7 @@ class TestAgentApi(unittest.TestCase):
         response = API.handle({"operation": "list_qwen_profiles"})
         self.assertTrue(response["ok"])
         self.assertIn("motion_contract", response["result"]["profiles"])
+        self.assertIn("voice_contract", response["result"]["profiles"])
         self.assertEqual(response["result"]["qwen_root_env"], "QWEN_ROOT")
 
     def test_run_qwen_gate_uses_fixed_profile_and_root(self) -> None:
@@ -314,5 +332,34 @@ class TestAgentApi(unittest.TestCase):
         self.assertFalse(response["ok"])
         self.assertEqual(response["error"]["code"], "invalid_request")
         run.assert_not_called()
+
+    def test_run_xiaozhi_protocol_uses_request_scoped_report(self) -> None:
+        request_id = "xiaozhi-test"
+        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
+        request_report = API.RESULTS / "xiaozhi_requests" / f"{report_key}.json"
+        request_report.parent.mkdir(parents=True, exist_ok=True)
+        request_report.write_text(json.dumps({"status": "pass", "cases": []}), encoding="utf-8")
+        with mock.patch.object(API, "_run", return_value={"exit_code": 0, "duration_s": 1.0, "stdout_tail": "", "stderr_tail": ""}) as run:
+            response = API.handle({"request_id": request_id, "operation": "run_xiaozhi_protocol", "params": {"timeout_s": 10}})
+        self.assertTrue(response["ok"])
+        command, timeout = run.call_args.args
+        self.assertIn("run_protocol_campaign.py", command[1])
+        self.assertEqual(command[-2:], ["--json-out", str(request_report)])
+        self.assertEqual(timeout, 10.0)
+
+    def test_run_xiaozhi_contract_uses_qwen_root_and_scoped_report(self) -> None:
+        request_id = "xiaozhi-contract-test"
+        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
+        request_report = API.RESULTS / "xiaozhi_requests" / f"{report_key}-contract.json"
+        request_report.parent.mkdir(parents=True, exist_ok=True)
+        request_report.write_text(json.dumps({"status": "pass", "violations": []}), encoding="utf-8")
+        with mock.patch.object(API, "_run", return_value={"exit_code": 0, "duration_s": 1.0, "stdout_tail": "", "stderr_tail": ""}) as run, mock.patch.dict(API.os.environ, {"QWEN_ROOT": "D:/QWEN3.0"}):
+            response = API.handle({"request_id": request_id, "operation": "run_xiaozhi_contract", "params": {"timeout_s": 10}})
+        self.assertTrue(response["ok"])
+        command, timeout = run.call_args.args
+        self.assertIn("run_firmware_contract.py", command[1])
+        self.assertIn("D:\\QWEN3.0", command)
+        self.assertEqual(command[-2:], ["--json-out", str(request_report)])
+        self.assertEqual(timeout, 10.0)
 if __name__ == "__main__":
     unittest.main()

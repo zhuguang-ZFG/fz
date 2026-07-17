@@ -28,8 +28,17 @@ PROFILES = {
         "tests/test_drawing_pipeline.py",
         "tests/test_drawing_pipeline_e2e.py",
     ),
+    "voice_contract": (
+        "tests/test_device_app_voice.py",
+        "tests/test_device_app_voice_ws.py",
+        "tests/test_device_voice_providers.py",
+        "tests/test_device_voice_streaming.py",
+        "tests/test_voice_e2e_probe.py",
+    ),
 }
-PROFILES["standard"] = tuple(dict.fromkeys(path for name in ("firmware_contract", "motion_contract", "drawing_e2e") for path in PROFILES[name]))
+PROFILES["standard"] = tuple(
+    dict.fromkeys(path for name in ("firmware_contract", "motion_contract", "drawing_e2e", "voice_contract") for path in PROFILES[name])
+)
 SUMMARY_PATTERN = re.compile(r"(?P<count>\d+) (?P<kind>passed|failed|skipped|error|errors|xfailed|xpassed)")
 
 
@@ -97,7 +106,10 @@ def run_profile(profile: str, qwen_root: Path, request_id: str, timeout_s: float
             "summary": parse_summary(output),
             "stdout_tail": run.stdout[-12000:],
             "stderr_tail": run.stderr[-8000:],
-            "evidence_boundary": "QWEN pytest/FakeDevice contracts; motion correctness still requires fz host SIL and paper/BT require HIL",
+            "evidence_boundary": (
+                "QWEN pytest/FakeDevice/voice contracts; no real microphone, speaker, Opus hardware, cloud credentials, or RF evidence; "
+                "motion correctness still requires fz host SIL and paper/BT require HIL"
+            ),
         }
     except subprocess.TimeoutExpired as exc:
         return {
