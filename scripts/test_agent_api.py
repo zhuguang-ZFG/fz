@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import tempfile
 import unittest
@@ -195,6 +196,40 @@ class TestAgentApi(unittest.TestCase):
         self.assertFalse(response["ok"])
         self.assertEqual(response["error"]["code"], "unknown_case")
         run.assert_not_called()
+    def test_run_paper_plant_uses_request_scoped_report(self) -> None:
+        canonical = API.REPORTS["paper_plant"]
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+        canonical.write_text(json.dumps({"status": "pass", "coverage": {"ratio": 1.0}}), encoding="utf-8")
+        request_id = "../../paper-test"
+        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
+        request_report = API.RESULTS / "paper_plant_requests" / f"{report_key}.json"
+        request_report.parent.mkdir(parents=True, exist_ok=True)
+        request_report.write_text(json.dumps({"status": "pass", "cases": [{"fault": "jam"}]}), encoding="utf-8")
+        with mock.patch.object(
+            API,
+            "_run",
+            return_value={"exit_code": 0, "duration_s": 1.0, "stdout_tail": "", "stderr_tail": ""},
+        ) as run:
+            response = API.handle(
+                {"request_id": request_id, "operation": "run_paper_plant", "params": {"profiles": ["jam", "sensor_bounce"], "timeout_s": 10}}
+            )
+        self.assertTrue(response["ok"])
+        self.assertEqual(response["result"]["cases"][0]["fault"], "jam")
+        self.assertEqual(json.loads(canonical.read_text(encoding="utf-8"))["coverage"]["ratio"], 1.0)
+        command, timeout = run.call_args.args
+        self.assertIn(str(request_report), command)
+        self.assertEqual(command[-4:], ["--only", "jam", "--only", "sensor_bounce"])
+        self.assertEqual(timeout, 10.0)
+
+    def test_unknown_paper_profile_is_rejected(self) -> None:
+        with mock.patch.object(API, "_run") as run:
+            response = API.handle(
+                {"operation": "run_paper_plant", "params": {"profiles": ["../../shell"]}}
+            )
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["error"]["code"], "unknown_case")
+        run.assert_not_called()
+
     def test_lists_qwen_profiles(self) -> None:
         response = API.handle({"operation": "list_qwen_profiles"})
         self.assertTrue(response["ok"])

@@ -886,6 +886,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
     )
 
+    paper_plant_runner = FZ_ROOT / "hardware_sim" / "run_paper_plant_campaign.py"
+    if paper_plant_runner.is_file():
+        code, dur = _run([sys.executable, str(paper_plant_runner)])
+        layers.append(
+            Layer(
+                id="paper_plant",
+                name="deterministic_paper_fault_campaign",
+                status="pass" if code == 0 else "fail",
+                exit_code=code,
+                duration_s=dur,
+                log_hint="hardware_sim/results/paper_plant_campaign.json",
+                detail="virtual-time paper motion, sensor, jam, slip, reverse, and timeout model",
+            )
+        )
+    else:
+        layers.append(
+            Layer(
+                id="paper_plant",
+                name="deterministic_paper_fault_campaign",
+                status="skip",
+                detail="paper plant runner unavailable",
+            )
+        )
+
     need_hw = profile in ("standard", "deep", "firmware")
     if need_hw:
         # hardware needs -s/-b step logs → own sim process (not shared)

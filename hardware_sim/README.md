@@ -57,6 +57,23 @@ Inject protocol: `docs/sim_inject_protocol.md`
 Plant: `plant.py` (TCP `!`/`~`; stdin PIPE best-effort / soft on Windows).  
 JSON schema: `case_runner.py` docstring; files in `cases/`.
 
+## Deterministic paper Plant 2.0
+
+`paper_plant.py` models paper position, feed speed, sensor debounce, overtravel,
+and fail-closed controller behavior on a deterministic virtual clock. The fault
+campaign covers nominal feed, slip, jam, missing paper, stuck sensors, sensor
+bounce, motor reverse, and timeout without wall-clock sleeps:
+
+```powershell
+python hardware_sim/run_paper_plant_campaign.py
+python hardware_sim/run_paper_plant_campaign.py --only jam --only sensor_bounce
+```
+
+The report is written to `hardware_sim/results/paper_plant_campaign.json` and is
+available through the Agent API `run_paper_plant` operation and `paper_plant`
+report resource. Full campaigns enforce fault-coverage closure. This is a
+mechanical/sensor model, not proof of ESP32 scheduling, real torque/friction,
+Bluetooth transport, or physical paper-path HIL.
 ## Open-source fusion
 
 See `fusion_notes.md` and repo-wide [opensource-sim-fusion-catalog](../docs/specs/2026-07-14-opensource-sim-fusion-catalog.md).  

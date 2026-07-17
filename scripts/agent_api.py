@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -37,6 +38,7 @@ REPORTS = {
     "triage": RESULTS / "triage_last.json",
     "protocol": FZ_ROOT / "protocol_sim" / "results" / "last_report.json",
     "hardware": FZ_ROOT / "hardware_sim" / "results" / "last_hw_report.json",
+    "paper_plant": FZ_ROOT / "hardware_sim" / "results" / "paper_plant_campaign.json",
     "native": FZ_ROOT / "native_sim" / "results" / "last_report.json",
     "native_fuzz": FZ_ROOT / "native_sim" / "results" / "last_fuzz_report.json",
     "native_coverage": FZ_ROOT / "native_sim" / "results" / "coverage_summary.json",
@@ -73,6 +75,14 @@ OPERATION_SCHEMAS = {
         "type": "object",
         "properties": {
             "profile": {"type": "string", "enum": list(PROFILES)},
+            "timeout_s": {"type": "number", "exclusiveMinimum": 0, "maximum": MAX_TIMEOUT_S},
+        },
+        "additionalProperties": False,
+    },
+    "run_paper_plant": {
+        "type": "object",
+        "properties": {
+            "profiles": {"type": "array", "items": {"type": "string", "pattern": CASE_NAME.pattern}, "uniqueItems": True},
             "timeout_s": {"type": "number", "exclusiveMinimum": 0, "maximum": MAX_TIMEOUT_S},
         },
         "additionalProperties": False,
@@ -333,7 +343,7 @@ def describe() -> Dict[str, Any]:
     return {
         "operations": OPERATION_SCHEMAS,
         "reports": {name: path.relative_to(FZ_ROOT).as_posix() for name, path in REPORTS.items()},
-        "mcp_mapping": {"tools": ["run_gate", "rerun_cases", "run_product_trace", "run_differential", "run_scenarios", "run_qwen_gate"], "resources": ["describe", "list_cases", "list_scenarios", "list_qwen_profiles", "read_report"]},
+        "mcp_mapping": {"tools": ["run_gate", "rerun_cases", "run_product_trace", "run_differential", "run_scenarios", "run_paper_plant", "run_qwen_gate"], "resources": ["describe", "list_cases", "list_scenarios", "list_qwen_profiles", "read_report"]},
     }
 
 
@@ -375,6 +385,27 @@ def dispatch(request: Dict[str, Any]) -> Dict[str, Any]:
             True,
             result={"name": name, "path": path.relative_to(FZ_ROOT).as_posix(), "content": _load_json(path)},
         )
+    if operation == "run_paper_plant":
+        profiles = _validated_names(
+            params.get("profiles"),
+            "profiles",
+            ["nominal", "slip_40pct", "jam", "no_paper", "sensor_stuck_inactive", "sensor_stuck_active", "sensor_bounce", "motor_reverse"],
+        )
+        timeout_s = _validated_timeout(params.get("timeout_s", 120))
+        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
+        request_report = RESULTS / "paper_plant_requests" / f"{report_key}.json"
+        command = [
+            sys.executable,
+            str(FZ_ROOT / "hardware_sim" / "run_paper_plant_campaign.py"),
+            "--json-out",
+            str(request_report),
+        ]
+        for profile in profiles:
+            command.extend(["--only", profile])
+        with _execution_lock(request_id, operation):
+            execution = _run(command, timeout_s)
+        report = _load_json(request_report)
+        return _envelope(request_id, operation, execution["exit_code"] == 0, execution=execution, result=report)
     if operation == "run_gate":
         profile = params.get("profile", "standard")
         if profile not in PROFILES:
