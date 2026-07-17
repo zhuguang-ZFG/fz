@@ -68,6 +68,7 @@ bounce, motor reverse, timeout, and pairwise slip+bounce/slip+jam combinations w
 python hardware_sim/run_paper_plant_campaign.py
 python hardware_sim/run_paper_plant_campaign.py --only jam --only sensor_bounce
 python hardware_sim/run_paper_plant_interactions.py
+python hardware_sim/run_paper_transient_campaign.py
 $env:GRBL_ROOT='D:\Users\Grbl_Esp32'; python hardware_sim/run_paper_firmware_contract.py
 ```
 
@@ -95,6 +96,13 @@ policy, and verifies declared Plant scaling. For example, the virtual Plant's
 15000 ms timeout; it is no longer an unexplained duplicate constant. Any change
 on either side fails `paper_contract` until the dictionary and rationale are
 reviewed. Agents can invoke `run_paper_contract` or read `paper_contract`.
+
+`run_paper_transient_campaign.py` schedules recoverable jam, sensor override,
+and speed-scale windows on the virtual clock. Windows use `[start_ms, end_ms)`
+semantics and are applied before each tick. The campaign checks deterministic
+replay, recovery versus fail-closed outcomes, terminal motor shutdown, and
+shrinks failing windows to a tick-granularity local minimum. Agents can invoke
+`run_paper_transients` or read `paper_transients` evidence.
 ## Open-source fusion
 
 See `fusion_notes.md` and repo-wide [opensource-sim-fusion-catalog](../docs/specs/2026-07-14-opensource-sim-fusion-catalog.md).  

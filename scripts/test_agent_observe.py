@@ -96,6 +96,30 @@ class TestAgentObserve(unittest.TestCase):
         self.assertEqual(finding["severity"], "hard")
         self.assertIn("PAPER_SENSOR_TIMEOUT_MS", finding["detail"])
 
+    def test_paper_transient_failure_surfaces_case_and_window(self) -> None:
+        import importlib.util
+
+        path = FZ / "scripts" / "agent_observe.py"
+        spec = importlib.util.spec_from_file_location("agent_observe", path)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        finding = mod._paper_transient_finding(
+            {
+                "status": "fail",
+                "cases": [
+                    {
+                        "name": "persistent_jam_times_out",
+                        "passed": False,
+                        "minimal_failure_window": {"start_ms": 1130, "end_ms": 2400},
+                    }
+                ],
+            }
+        )
+        self.assertIsNotNone(finding)
+        self.assertEqual(finding["severity"], "hard")
+        self.assertIn("persistent_jam_times_out", finding["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

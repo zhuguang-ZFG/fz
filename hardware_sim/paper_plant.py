@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import heapq
+import math
+from numbers import Real
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 
 @dataclass(order=True)
@@ -57,6 +59,34 @@ class FaultProfile:
     reverse: bool = False
 
 
+@dataclass(frozen=True)
+class TransientFault:
+    kind: str
+    start_ms: int
+    end_ms: int
+    value: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in {"jam", "sensor", "speed_scale"}:
+            raise ValueError(f"unsupported transient fault kind: {self.kind}")
+        if isinstance(self.start_ms, bool) or isinstance(self.end_ms, bool) or not isinstance(self.start_ms, int) or not isinstance(self.end_ms, int):
+            raise ValueError("transient fault boundaries must be integer milliseconds")
+        if self.start_ms < 0 or self.end_ms <= self.start_ms:
+            raise ValueError("transient fault window must satisfy 0 <= start_ms < end_ms")
+        if self.kind == "jam" and self.value is not None:
+            raise ValueError("jam transient does not accept a value")
+        if self.kind == "sensor" and (isinstance(self.value, bool) or self.value not in {0.0, 1.0}):
+            raise ValueError("sensor transient value must be 0 or 1")
+        if self.kind == "speed_scale" and (
+            isinstance(self.value, bool)
+            or not isinstance(self.value, Real)
+            or not math.isfinite(float(self.value))
+            or self.value < 0.0
+            or self.value > 1.0
+        ):
+            raise ValueError("speed_scale transient value must be between 0 and 1")
+
+
 @dataclass
 class PaperPlantState:
     position_mm: float = 0.0
@@ -66,7 +96,7 @@ class PaperPlantState:
 
 
 class PaperTransportSimulation:
-    def __init__(self, config: PaperPlantConfig, fault: FaultProfile) -> None:
+    def __init__(self, config: PaperPlantConfig, fault: FaultProfile, transient_faults: Sequence[TransientFault] = ()) -> None:
         self.config = config
         self.fault = fault
         self.clock = VirtualClock()
@@ -80,6 +110,12 @@ class PaperTransportSimulation:
         self.transitions: List[Dict[str, Any]] = []
         self.covered: set[str] = set()
         self._bounce_remaining = fault.sensor_bounce_samples
+        self.transient_faults = tuple(sorted(transient_faults, key=lambda item: (item.start_ms, item.end_ms, item.kind)))
+        self._active_transients: set[int] = set()
+        for left, current in enumerate(self.transient_faults):
+            for other in self.transient_faults[left + 1 :]:
+                if current.kind == other.kind and current.start_ms < other.end_ms and other.start_ms < current.end_ms:
+                    raise ValueError(f"overlapping transient windows for {current.kind}")
 
     def _record(self, event: str, **details: Any) -> None:
         self.transitions.append(
@@ -103,7 +139,27 @@ class PaperTransportSimulation:
         if self.outcome == "running":
             self._finish("failed", "scheduler_exhausted")
 
-    def _raw_sensor(self) -> bool:
+    def _active_faults(self) -> List[TransientFault]:
+        active: List[TransientFault] = []
+        active_indexes: set[int] = set()
+        for index, transient in enumerate(self.transient_faults):
+            if transient.start_ms <= self.clock.now_ms < transient.end_ms:
+                active.append(transient)
+                active_indexes.add(index)
+        for index in sorted(active_indexes - self._active_transients):
+            transient = self.transient_faults[index]
+            self._record("fault_start", kind=transient.kind, value=transient.value, end_ms=transient.end_ms)
+        for index in sorted(self._active_transients - active_indexes):
+            transient = self.transient_faults[index]
+            self._record("fault_end", kind=transient.kind, value=transient.value, start_ms=transient.start_ms)
+        self._active_transients = active_indexes
+        return active
+
+    def _raw_sensor(self, transient_faults: Sequence[TransientFault]) -> bool:
+        sensor_fault = next((item for item in transient_faults if item.kind == "sensor"), None)
+        if sensor_fault is not None:
+            self.covered.add("transient_sensor")
+            return bool(sensor_fault.value)
         if self.fault.sensor_stuck is not None:
             self.covered.add("sensor_stuck")
             return self.fault.sensor_stuck
@@ -117,20 +173,28 @@ class PaperTransportSimulation:
     def _tick(self) -> None:
         if self.outcome != "running":
             return
+        transient_faults = self._active_faults()
         elapsed_s = self.config.tick_ms / 1000.0
         if self.plant.motor_on:
             direction = -1.0 if self.fault.reverse else 1.0
             if self.fault.reverse:
                 self.covered.add("motor_reverse")
+            transient_jam = any(item.kind == "jam" for item in transient_faults)
+            if transient_jam:
+                self.covered.add("transient_jam")
             if self.fault.jam_at_mm is not None and self.plant.position_mm >= self.fault.jam_at_mm:
                 self.plant.jammed = True
                 self.covered.add("motor_jam")
-            if not self.plant.jammed:
-                delta = self.config.feed_speed_mm_s * self.fault.speed_scale * elapsed_s * direction
+            if not self.plant.jammed and not transient_jam:
+                transient_speed = next((item.value for item in transient_faults if item.kind == "speed_scale"), 1.0)
+                speed_scale = self.fault.speed_scale * float(transient_speed)
+                delta = self.config.feed_speed_mm_s * speed_scale * elapsed_s * direction
                 self.plant.position_mm += delta
-                if self.fault.speed_scale < 1.0:
+                if speed_scale < 1.0:
                     self.covered.add("paper_slip")
-        self.plant.sensor_active = self._raw_sensor()
+                if transient_speed < 1.0:
+                    self.covered.add("transient_speed")
+        self.plant.sensor_active = self._raw_sensor(transient_faults)
         self._controller_step()
         if self.outcome == "running":
             self.clock.schedule(self.config.tick_ms, self._tick)
@@ -183,7 +247,7 @@ class PaperTransportSimulation:
         }
 
 
-def simulate(config: PaperPlantConfig, fault: FaultProfile) -> Dict[str, Any]:
-    simulation = PaperTransportSimulation(config, fault)
+def simulate(config: PaperPlantConfig, fault: FaultProfile, transient_faults: Sequence[TransientFault] = ()) -> Dict[str, Any]:
+    simulation = PaperTransportSimulation(config, fault, transient_faults)
     simulation.start()
     return simulation.report()

@@ -270,6 +270,26 @@ class TestAgentApi(unittest.TestCase):
         self.assertEqual(command[-2:], ["--json-out", str(request_report)])
         self.assertEqual(timeout, 10.0)
 
+    def test_run_paper_transients_uses_request_scoped_report(self) -> None:
+        request_id = "transient-test"
+        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
+        request_report = API.RESULTS / "paper_plant_requests" / f"{report_key}-transients.json"
+        request_report.parent.mkdir(parents=True, exist_ok=True)
+        request_report.write_text(json.dumps({"status": "pass", "cases": []}), encoding="utf-8")
+        with mock.patch.object(
+            API,
+            "_run",
+            return_value={"exit_code": 0, "duration_s": 1.0, "stdout_tail": "", "stderr_tail": ""},
+        ) as run:
+            response = API.handle(
+                {"request_id": request_id, "operation": "run_paper_transients", "params": {"timeout_s": 10}}
+            )
+        self.assertTrue(response["ok"])
+        command, timeout = run.call_args.args
+        self.assertIn("run_paper_transient_campaign.py", command[1])
+        self.assertEqual(command[-2:], ["--json-out", str(request_report)])
+        self.assertEqual(timeout, 10.0)
+
     def test_lists_qwen_profiles(self) -> None:
         response = API.handle({"operation": "list_qwen_profiles"})
         self.assertTrue(response["ok"])

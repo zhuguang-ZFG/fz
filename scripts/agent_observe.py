@@ -92,6 +92,20 @@ def _paper_contract_finding(report: Any) -> Optional[Dict[str, Any]]:
     )
 
 
+def _paper_transient_finding(report: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(report, dict) or report.get("status") != "fail":
+        return None
+    failures = [case for case in report.get("cases", []) if isinstance(case, dict) and not case.get("passed")]
+    return _finding(
+        "hard",
+        "paper_transients",
+        "paper transient recovery property failed",
+        detail=json.dumps(failures[:3], ensure_ascii=False, sort_keys=True),
+        action="python hardware_sim/run_paper_transient_campaign.py",
+        refs=["hardware_sim/results/paper_plant_transients.json"],
+    )
+
+
 def _fail_stems_without_golden() -> List[str]:
     """R39: fail cases that lack a matching golden_* contract (coverage gap)."""
     fail_dir = FZ_ROOT / "protocol_sim" / "cases" / "fail"
@@ -128,6 +142,7 @@ def build_observe() -> Dict[str, Any]:
     native_cov = _read_json(FZ_ROOT / "native_sim" / "results" / "coverage_summary.json") or {}
     paper_interactions = _read_json(FZ_ROOT / "hardware_sim" / "results" / "paper_plant_interactions.json") or {}
     paper_contract = _read_json(FZ_ROOT / "hardware_sim" / "results" / "paper_firmware_contract.json") or {}
+    paper_transients = _read_json(FZ_ROOT / "hardware_sim" / "results" / "paper_plant_transients.json") or {}
     triage = _read_json(RESULTS / "triage_last.json") or {}
     integrity = _read_json(
         FZ_ROOT / "protocol_sim" / "results" / "integrity_inject_last.json"
@@ -162,6 +177,9 @@ def build_observe() -> Dict[str, Any]:
     paper_contract_finding = _paper_contract_finding(paper_contract)
     if paper_contract_finding is not None:
         findings.append(paper_contract_finding)
+    paper_transient_finding = _paper_transient_finding(paper_transients)
+    if paper_transient_finding is not None:
+        findings.append(paper_transient_finding)
 
     for c in (triage.get("protocol_failures") if isinstance(triage, dict) else None) or []:
         if not isinstance(c, dict):

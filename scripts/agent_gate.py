@@ -957,6 +957,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
         )
 
+    paper_transient_runner = FZ_ROOT / "hardware_sim" / "run_paper_transient_campaign.py"
+    if paper_transient_runner.is_file():
+        code, dur = _run([sys.executable, str(paper_transient_runner)])
+        layers.append(
+            Layer(
+                id="paper_transients",
+                name="scheduled_paper_transient_campaign",
+                status="pass" if code == 0 else "fail",
+                exit_code=code,
+                duration_s=dur,
+                log_hint="hardware_sim/results/paper_plant_transients.json",
+                detail="scheduled jam/sensor/speed windows, recovery properties, and minimal failure-window shrinking",
+            )
+        )
+    else:
+        layers.append(
+            Layer(
+                id="paper_transients",
+                name="scheduled_paper_transient_campaign",
+                status="skip",
+                detail="paper transient runner unavailable",
+            )
+        )
+
     need_hw = profile in ("standard", "deep", "firmware")
     if need_hw:
         # hardware needs -s/-b step logs → own sim process (not shared)

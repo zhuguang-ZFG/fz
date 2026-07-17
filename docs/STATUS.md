@@ -62,6 +62,7 @@ Last updated: 2026-07-17
 | R56 | Shared paper-search decisions | **done** | Firmware Steps 2/6/7 use one pure sensor/deadline/step-limit core + native boundary/model checks |
 | R57 | Paper interaction model checking | **done** | 48 exhaustive configs × 2 deterministic replays + safety properties + 44/44 pairwise interactions + MCP/gate evidence |
 | R58 | Firmware/Plant drift contract | **done** | Source macro extraction + reviewed abstraction dictionary + scale/threshold checks + MCP/gate/observe evidence |
+| R59 | Scheduled transient fault campaign | **done** | Virtual-time jam/sensor/speed windows + recovery/fail-closed properties + minimal failure-window shrinking + MCP/gate evidence |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 
