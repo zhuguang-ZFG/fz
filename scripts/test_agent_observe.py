@@ -81,6 +81,21 @@ class TestAgentObserve(unittest.TestCase):
         self.assertIn("missing", finding["detail"])
         self.assertEqual(finding["action"], "python hardware_sim/run_paper_plant_interactions.py")
 
+    def test_paper_contract_failure_surfaces_drift(self) -> None:
+        import importlib.util
+
+        path = FZ / "scripts" / "agent_observe.py"
+        spec = importlib.util.spec_from_file_location("agent_observe", path)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        finding = mod._paper_contract_finding(
+            {"status": "fail", "violations": [{"kind": "firmware_drift", "name": "PAPER_SENSOR_TIMEOUT_MS"}]}
+        )
+        self.assertIsNotNone(finding)
+        self.assertEqual(finding["severity"], "hard")
+        self.assertIn("PAPER_SENSOR_TIMEOUT_MS", finding["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "machine": "custom_3axis_hr4988.h",
+  "firmware_constants": {
+    "Grbl_Esp32/src/PaperSystem.cpp": {
+      "PAPER_SENSOR_TIMEOUT_MS": 15000,
+      "PAPER_YIELD_STEPS": 25,
+      "PAPER_MAX_RETRIES": 1,
+      "FEEDER_RETRY_BACKOFF_STEPS": 500,
+      "PANEL_RETRY_BACKOFF_STEPS": 500,
+      "PAPER_SENSOR_STABLE_SAMPLES": 5,
+      "PAPER_SENSOR_STABLE_THRESHOLD": 4,
+      "PAPER_SENSOR_STABLE_INTERVAL_US": 500
+    },
+    "Grbl_Esp32/src/Machines/custom_3axis_hr4988.h": {
+      "PANEL_FAST_STEPS_MAX": 20000,
+      "PANEL_BACK_STEPS_MAX": 12000,
+      "FEEDER_FIND_STEPS_MAX": 16000,
+      "PAPER_RAMP_STEPS": 40,
+      "FEEDER_FIND_RAMP_HI_US": 100,
+      "FEEDER_FIND_RAMP_LO_US": 100,
+      "FEEDER_FIND_NORMAL_HI_US": 38,
+      "FEEDER_FIND_NORMAL_LO_US": 38,
+      "PAPER_PANEL_FAST_HI_US": 100,
+      "PAPER_PANEL_FAST_LO_US": 100
+    }
+  },
+  "plant_abstractions": {
+    "tick_ms": {
+      "expected": 10,
+      "kind": "virtual_sampling_tick"
+    },
+    "timeout_ms": {
+      "expected": 2500,
+      "kind": "scaled_from_firmware",
+      "firmware_constant": "PAPER_SENSOR_TIMEOUT_MS",
+      "scale_numerator": 1,
+      "scale_denominator": 6
+    },
+    "debounce_samples": {
+      "expected": 4,
+      "kind": "threshold_abstraction",
+      "firmware_samples_constant": "PAPER_SENSOR_STABLE_SAMPLES",
+      "firmware_threshold_constant": "PAPER_SENSOR_STABLE_THRESHOLD"
+    }
+  },
+  "evidence_boundary": "reviewed firmware/Plant parameter dictionary; validates declared constants and abstractions, not physical calibration or HIL"
+}

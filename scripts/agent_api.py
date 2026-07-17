@@ -40,6 +40,7 @@ REPORTS = {
     "hardware": FZ_ROOT / "hardware_sim" / "results" / "last_hw_report.json",
     "paper_plant": FZ_ROOT / "hardware_sim" / "results" / "paper_plant_campaign.json",
     "paper_interactions": FZ_ROOT / "hardware_sim" / "results" / "paper_plant_interactions.json",
+    "paper_contract": FZ_ROOT / "hardware_sim" / "results" / "paper_firmware_contract.json",
     "native": FZ_ROOT / "native_sim" / "results" / "last_report.json",
     "native_fuzz": FZ_ROOT / "native_sim" / "results" / "last_fuzz_report.json",
     "native_coverage": FZ_ROOT / "native_sim" / "results" / "coverage_summary.json",
@@ -91,6 +92,14 @@ OPERATION_SCHEMAS = {
     "run_paper_interactions": {
         "type": "object",
         "properties": {
+            "timeout_s": {"type": "number", "exclusiveMinimum": 0, "maximum": MAX_TIMEOUT_S},
+        },
+        "additionalProperties": False,
+    },
+    "run_paper_contract": {
+        "type": "object",
+        "properties": {
+            "grbl_root": {"type": "string", "minLength": 1},
             "timeout_s": {"type": "number", "exclusiveMinimum": 0, "maximum": MAX_TIMEOUT_S},
         },
         "additionalProperties": False,
@@ -351,7 +360,7 @@ def describe() -> Dict[str, Any]:
     return {
         "operations": OPERATION_SCHEMAS,
         "reports": {name: path.relative_to(FZ_ROOT).as_posix() for name, path in REPORTS.items()},
-        "mcp_mapping": {"tools": ["run_gate", "rerun_cases", "run_product_trace", "run_differential", "run_scenarios", "run_paper_plant", "run_paper_interactions", "run_qwen_gate"], "resources": ["describe", "list_cases", "list_scenarios", "list_qwen_profiles", "read_report"]},
+        "mcp_mapping": {"tools": ["run_gate", "rerun_cases", "run_product_trace", "run_differential", "run_scenarios", "run_paper_plant", "run_paper_interactions", "run_paper_contract", "run_qwen_gate"], "resources": ["describe", "list_cases", "list_scenarios", "list_qwen_profiles", "read_report"]},
     }
 
 
@@ -421,6 +430,23 @@ def dispatch(request: Dict[str, Any]) -> Dict[str, Any]:
         command = [
             sys.executable,
             str(FZ_ROOT / "hardware_sim" / "run_paper_plant_interactions.py"),
+            "--json-out",
+            str(request_report),
+        ]
+        with _execution_lock(request_id, operation):
+            execution = _run(command, timeout_s)
+        report = _load_json(request_report)
+        return _envelope(request_id, operation, execution["exit_code"] == 0, execution=execution, result=report)
+    if operation == "run_paper_contract":
+        timeout_s = _validated_timeout(params.get("timeout_s", 120))
+        grbl_root = Path(str(params.get("grbl_root") or os.environ.get("GRBL_ROOT") or "D:/Users/Grbl_Esp32")).resolve()
+        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
+        request_report = RESULTS / "paper_plant_requests" / f"{report_key}-contract.json"
+        command = [
+            sys.executable,
+            str(FZ_ROOT / "hardware_sim" / "run_paper_firmware_contract.py"),
+            "--grbl-root",
+            str(grbl_root),
             "--json-out",
             str(request_report),
         ]

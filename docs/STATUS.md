@@ -61,6 +61,7 @@ Last updated: 2026-07-17
 | R55 | Deterministic paper Plant 2.0 | **done** | Virtual time + 10 fault profiles + pairwise combinations + 12/12 coverage + Agent API/gate evidence |
 | R56 | Shared paper-search decisions | **done** | Firmware Steps 2/6/7 use one pure sensor/deadline/step-limit core + native boundary/model checks |
 | R57 | Paper interaction model checking | **done** | 48 exhaustive configs × 2 deterministic replays + safety properties + 44/44 pairwise interactions + MCP/gate evidence |
+| R58 | Firmware/Plant drift contract | **done** | Source macro extraction + reviewed abstraction dictionary + scale/threshold checks + MCP/gate/observe evidence |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 

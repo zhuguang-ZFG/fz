@@ -68,6 +68,7 @@ bounce, motor reverse, timeout, and pairwise slip+bounce/slip+jam combinations w
 python hardware_sim/run_paper_plant_campaign.py
 python hardware_sim/run_paper_plant_campaign.py --only jam --only sensor_bounce
 python hardware_sim/run_paper_plant_interactions.py
+$env:GRBL_ROOT='D:\Users\Grbl_Esp32'; python hardware_sim/run_paper_firmware_contract.py
 ```
 
 The report is written to `hardware_sim/results/paper_plant_campaign.json` and is
@@ -85,6 +86,15 @@ when any property fails. This follows the combination-coverage pattern used by
 Microsoft PICT while retaining exhaustive coverage because virtual time makes
 the complete bounded product inexpensive. Agents can invoke the same fixed
 runner through `run_paper_interactions` and read `paper_interactions` evidence.
+
+`paper_firmware_contract.json` is the reviewed dictionary between product
+firmware constants and Plant abstractions. The contract runner extracts numeric
+macros directly from `GRBL_ROOT`, checks the selected machine limits and sensor
+policy, and verifies declared Plant scaling. For example, the virtual Plant's
+2500 ms timeout is explicitly recorded as a 1:6 acceleration of the firmware's
+15000 ms timeout; it is no longer an unexplained duplicate constant. Any change
+on either side fails `paper_contract` until the dictionary and rationale are
+reviewed. Agents can invoke `run_paper_contract` or read `paper_contract`.
 ## Open-source fusion
 
 See `fusion_notes.md` and repo-wide [opensource-sim-fusion-catalog](../docs/specs/2026-07-14-opensource-sim-fusion-catalog.md).  

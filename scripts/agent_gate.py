@@ -618,6 +618,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     native_fuzz_runner = FZ_ROOT / "native_sim" / "run_product_core_fuzz.py"
     native_model_runner = FZ_ROOT / "native_sim" / "run_product_model_check.py"
     native_coverage_runner = FZ_ROOT / "native_sim" / "run_product_core_coverage.py"
+    paper_contract_runner = FZ_ROOT / "hardware_sim" / "run_paper_firmware_contract.py"
+    if grbl is not None and paper_contract_runner.is_file():
+        code, dur = _run([sys.executable, str(paper_contract_runner), "--grbl-root", str(grbl)])
+        layers.append(
+            Layer(
+                id="paper_contract",
+                name="paper_firmware_plant_contract",
+                status="pass" if code == 0 else "fail",
+                exit_code=code,
+                duration_s=dur,
+                log_hint="hardware_sim/results/paper_firmware_contract.json",
+                detail="reviewed product constants and declared Plant abstractions",
+            )
+        )
+    else:
+        layers.append(
+            Layer(
+                id="paper_contract",
+                name="paper_firmware_plant_contract",
+                status="skip",
+                detail="GRBL_ROOT unavailable",
+            )
+        )
     if grbl is not None and native_runner.is_file():
         code, dur = _run(
             [
