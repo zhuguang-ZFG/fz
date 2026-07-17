@@ -17,6 +17,7 @@ Current coverage:
 - Bluetooth TX ring FIFO, wrap, overflow, and reset-generation safety
 - Paper pulse-profile timing boundaries
 - Paper sensor voting and wrap-safe millisecond deadlines
+- Paper sensor-edge search termination used by firmware Steps 2, 6, and 7
 
 The runner uses ASan and UBSan and writes `native_sim/results/last_report.json`.
 
@@ -80,7 +81,9 @@ the same field-level mismatch; it never changes gate pass/fail evidence.
 `run_product_model_check.py` exhaustively explores every canonical
 `PaperBtAckState` and event transition, then checks safety invariants such as
 mutually exclusive armed/pending/running phases, disconnect behavior, and
-idempotent busy/realtime events. It also applies case, whitespace, line-number,
+idempotent busy/realtime events. It exhaustively checks small paper-search
+sensor/deadline/step-limit combinations and their terminal-decision invariant.
+It also applies case, whitespace, line-number,
 and comment transformations to protocol inputs while preserving the expected
 motion classification.
 
@@ -92,7 +95,9 @@ python native_sim/run_product_model_check.py
 The report is written to `native_sim/results/product_model_check.json` and is a
 hard `native_model` layer in the standard Agent gate. This bounded exploration
 finds reducer and classification defects; it does not model FreeRTOS scheduling,
-Bluetooth transport timing, or physical paper mechanics.
+Bluetooth transport timing, or physical paper mechanics. The Python Paper Plant
+is a separate deterministic mechanical model and does not execute the complete
+eight-stage firmware controller.
 ## QWEN / Xiaozhi evidence adapter
 
 QWEN remains the owner of its pytest, FakeDevice, firmware contract, and drawing

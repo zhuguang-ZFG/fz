@@ -4,6 +4,7 @@
 #include <string>
 
 #include "PaperSystemCore.h"
+#include "PaperSearchCore.h"
 #include "LicenseCore.h"
 #include "PaperBtAckCore.h"
 #include "WebUI/BTStateCore.h"
@@ -111,6 +112,21 @@ void test_license_core() {
   check(LicenseCore::code_matches(expected, expected), "expected license code must unlock");
 }
 
+void test_paper_search_core() {
+  check(paper_sensor_edge_decide(true, true, 999u, 999u, 10u, 100u) == PaperSearchDecision::Found,
+        "expected sensor state wins over timeout and step limit");
+  check(paper_sensor_edge_decide(false, false, 999u, 999u, 10u, 100u) == PaperSearchDecision::Found,
+        "expected inactive edge wins over bounds");
+  check(paper_sensor_edge_decide(false, true, 100u, 10u, 10u, 100u) == PaperSearchDecision::StepLimit,
+        "step limit preserves firmware loop precedence at shared boundary");
+  check(paper_sensor_edge_decide(false, true, 99u, 10u, 10u, 100u) == PaperSearchDecision::StepLimit,
+        "edge search respects step limit before timeout");
+  check(paper_sensor_edge_decide(false, true, 100u, 9u, 10u, 100u) == PaperSearchDecision::TimedOut,
+        "edge search reports timeout below the step limit");
+  check(paper_sensor_edge_decide(false, true, 99u, 9u, 10u, 100u) == PaperSearchDecision::Continue,
+        "edge search continues before terminal bounds");
+}
+
 void test_paper_bt_ack_core() {
   PaperBtAckState state;
   state = paper_bt_ack_reduce(state, PaperBtAckEvent::SppConnected);
@@ -170,6 +186,7 @@ void test_paper_sensor_and_deadline() {
 int main() {
   test_bt_reducer();
   test_license_core();
+  test_paper_search_core();
   test_paper_bt_ack_core();
   test_bt_message_policy();
   test_bt_ring();

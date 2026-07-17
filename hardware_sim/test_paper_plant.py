@@ -45,6 +45,19 @@ class TestPaperPlant(unittest.TestCase):
         self.assertEqual(result["reason"], "sensor_active_too_early")
         self.assertIn("sensor_plausibility", result["covered"])
 
+    def test_pairwise_slip_and_bounce_recovers(self) -> None:
+        result = simulate(PaperPlantConfig(), FaultProfile(name="pair", speed_scale=0.6, sensor_bounce_samples=8))
+        self.assertEqual(result["outcome"], "completed")
+        self.assertIn("paper_slip", result["covered"])
+        self.assertIn("sensor_bounce", result["covered"])
+
+    def test_pairwise_slip_and_jam_fails_closed(self) -> None:
+        result = simulate(PaperPlantConfig(), FaultProfile(name="pair", speed_scale=0.6, jam_at_mm=25.0))
+        self.assertEqual(result["outcome"], "failed")
+        self.assertEqual(result["reason"], "timeout")
+        self.assertIn("paper_slip", result["covered"])
+        self.assertIn("motor_jam", result["covered"])
+
     def test_full_campaign_closes_required_fault_coverage(self) -> None:
         report = run_campaign()
         self.assertEqual(report["status"], "pass")

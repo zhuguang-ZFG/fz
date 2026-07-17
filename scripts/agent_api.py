@@ -389,7 +389,7 @@ def dispatch(request: Dict[str, Any]) -> Dict[str, Any]:
         profiles = _validated_names(
             params.get("profiles"),
             "profiles",
-            ["nominal", "slip_40pct", "jam", "no_paper", "sensor_stuck_inactive", "sensor_stuck_active", "sensor_bounce", "motor_reverse"],
+            ["nominal", "slip_40pct", "jam", "no_paper", "sensor_stuck_inactive", "sensor_stuck_active", "sensor_bounce", "motor_reverse", "slip_plus_bounce", "slip_plus_jam"],
         )
         timeout_s = _validated_timeout(params.get("timeout_s", 120))
         report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()

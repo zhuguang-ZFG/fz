@@ -58,7 +58,8 @@ Last updated: 2026-07-16
 | R52 | QWEN/Xiaozhi evidence adapter | **done** | Fixed pytest/FakeDevice/drawing profiles + MCP run_qwen_gate |
 | R53 | Finite-state + metamorphic product checks | **done** | Paper/BT reducer state exploration + protocol input transformations in standard gate |
 | R54 | Protocol input-boundary classification | **done** | Numeric axis-word validation; system/malformed command negative matrix + product build |
-| R55 | Deterministic paper Plant 2.0 | **done** | Virtual time + 8 fault profiles + 12/12 coverage + Agent API/gate evidence |
+| R55 | Deterministic paper Plant 2.0 | **done** | Virtual time + 10 fault profiles + pairwise combinations + 12/12 coverage + Agent API/gate evidence |
+| R56 | Shared paper-search decisions | **done** | Firmware Steps 2/6/7 use one pure sensor/deadline/step-limit core + native boundary/model checks |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 

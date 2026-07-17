@@ -62,7 +62,7 @@ JSON schema: `case_runner.py` docstring; files in `cases/`.
 `paper_plant.py` models paper position, feed speed, sensor debounce, overtravel,
 and fail-closed controller behavior on a deterministic virtual clock. The fault
 campaign covers nominal feed, slip, jam, missing paper, stuck sensors, sensor
-bounce, motor reverse, and timeout without wall-clock sleeps:
+bounce, motor reverse, timeout, and pairwise slip+bounce/slip+jam combinations without wall-clock sleeps:
 
 ```powershell
 python hardware_sim/run_paper_plant_campaign.py

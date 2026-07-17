@@ -1,4 +1,5 @@
 #include "PaperBtAckCore.h"
+#include "PaperSearchCore.h"
 #include "ProtocolDecisionCore.h"
 
 #include <array>
@@ -91,6 +92,34 @@ int main() {
         ++checks;
         if (ProtocolDecisionCore::is_motion_line(line, true)) {
             ++failures;
+        }
+    }
+
+    for (bool sensor_active : {false, true}) {
+        for (bool expected_active : {false, true}) {
+            for (uint32_t elapsed_ms = 0; elapsed_ms <= 2; ++elapsed_ms) {
+                for (uint32_t steps_taken = 0; steps_taken <= 2; ++steps_taken) {
+                    PaperSearchDecision decision =
+                        paper_sensor_edge_decide(sensor_active, expected_active, elapsed_ms, steps_taken, 2u, 2u);
+                    PaperSearchDecision expected = PaperSearchDecision::Continue;
+                    if (sensor_active == expected_active) {
+                        expected = PaperSearchDecision::Found;
+                    } else if (steps_taken >= 2u) {
+                        expected = PaperSearchDecision::StepLimit;
+                    } else if (elapsed_ms >= 2u) {
+                        expected = PaperSearchDecision::TimedOut;
+                    }
+                    ++checks;
+                    if (decision != expected) {
+                        ++failures;
+                    }
+                    ++checks;
+                    if ((sensor_active == expected_active || steps_taken >= 2u || elapsed_ms >= 2u) ==
+                        (decision == PaperSearchDecision::Continue)) {
+                        ++failures;
+                    }
+                }
+            }
         }
     }
 

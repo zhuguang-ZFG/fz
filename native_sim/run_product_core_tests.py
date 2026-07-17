@@ -82,6 +82,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     grbl_root = args.grbl_root.resolve()
     required = [
         grbl_root / "Grbl_Esp32" / "src" / "PaperSystemCore.h",
+        grbl_root / "Grbl_Esp32" / "src" / "PaperSearchCore.h",
         grbl_root / "Grbl_Esp32" / "src" / "WebUI" / "BTStateCore.h",
     ]
     missing = [str(path) for path in required if not path.is_file()]

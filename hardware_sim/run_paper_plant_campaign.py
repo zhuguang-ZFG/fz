@@ -22,6 +22,8 @@ CAMPAIGN = [
     (FaultProfile(name="sensor_stuck_active", sensor_stuck=True), "failed", "sensor_active_too_early"),
     (FaultProfile(name="sensor_bounce", sensor_bounce_samples=8), "completed", "paper_positioned"),
     (FaultProfile(name="motor_reverse", reverse=True), "failed", "reverse_motion"),
+    (FaultProfile(name="slip_plus_bounce", speed_scale=0.6, sensor_bounce_samples=8), "completed", "paper_positioned"),
+    (FaultProfile(name="slip_plus_jam", speed_scale=0.6, jam_at_mm=25.0), "failed", "timeout"),
 ]
 
 REQUIRED_COVERAGE = {

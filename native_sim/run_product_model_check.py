@@ -30,6 +30,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "grbl_root": str(args.grbl_root.resolve()),
     }
     try:
+        required = args.grbl_root.resolve() / "Grbl_Esp32" / "src" / "PaperSearchCore.h"
+        if not required.is_file():
+            raise RuntimeError(f"missing product header: {required}")
         if compiler is None:
             raise RuntimeError("no C++ compiler found")
         output = RESULTS / ("product_model_check.exe" if os.name == "nt" else "product_model_check")
