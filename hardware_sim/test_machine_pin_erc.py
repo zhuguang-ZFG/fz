@@ -8,9 +8,19 @@ import unittest
 from pathlib import Path
 
 from run_machine_pin_erc import load_contract, parse_defines, resolve, validate_contract
+from run_machine_pin_mutation_campaign import run_campaign
 
 
 class TestMachinePinErc(unittest.TestCase):
+    def test_checker_kills_every_declared_preflash_mutation(self) -> None:
+        grbl_root = Path(os.environ.get("GRBL_ROOT", "D:/Users/Grbl_Esp32"))
+        if not grbl_root.is_dir():
+            self.skipTest("GRBL_ROOT unavailable")
+        report = run_campaign(grbl_root)
+        self.assertEqual(report["status"], "pass", report["failures"])
+        self.assertTrue(report["baseline_passed"])
+        self.assertEqual(report["mutation_score"], {"killed": 6, "total": 6})
+
     def test_parser_resolves_gpio_i2so_and_aliases(self) -> None:
         defines = parse_defines("#define A GPIO_NUM_25\n#define B I2SO(3)\n#define C A\n")
         self.assertEqual(resolve("A", defines), "GPIO25")

@@ -159,6 +159,30 @@ class TestAgentObserve(unittest.TestCase):
         self.assertIn("28/28", findings[0]["detail"])
         self.assertIn("waivers=3", findings[0]["detail"])
 
+    def test_machine_pin_mutation_miss_is_hard_failure(self) -> None:
+        import importlib.util
+
+        path = FZ / "scripts" / "agent_observe.py"
+        spec = importlib.util.spec_from_file_location("agent_observe", path)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        findings = mod._machine_pin_mutation_findings({"status": "fail", "mutation_score": {"killed": 5, "total": 6}, "failures": [{"name": "physical_pin_collision"}]})
+        self.assertEqual(findings[0]["severity"], "hard")
+        self.assertIn("physical_pin_collision", findings[0]["detail"])
+
+    def test_machine_pin_mutation_pass_surfaces_score(self) -> None:
+        import importlib.util
+
+        path = FZ / "scripts" / "agent_observe.py"
+        spec = importlib.util.spec_from_file_location("agent_observe", path)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        findings = mod._machine_pin_mutation_findings({"status": "pass", "mutation_score": {"killed": 6, "total": 6}})
+        self.assertEqual(findings[0]["severity"], "info")
+        self.assertIn("6/6", findings[0]["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

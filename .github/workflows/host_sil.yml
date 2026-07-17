@@ -90,6 +90,7 @@ jobs:
             native_sim/results/last_fuzz_report.json
             native_sim/results/coverage_summary.json
             hardware_sim/results/machine_pin_erc.json
+            hardware_sim/results/machine_pin_mutations.json
             xiaozhi_sim/results/protocol_campaign.json
             xiaozhi_sim/results/firmware_contract.json
             results/qwen_gate_last.json
@@ -153,6 +154,7 @@ jobs:
             native_sim/results/last_fuzz_report.json
             native_sim/results/coverage_summary.json
             hardware_sim/results/machine_pin_erc.json
+            hardware_sim/results/machine_pin_mutations.json
             xiaozhi_sim/results/protocol_campaign.json
             xiaozhi_sim/results/firmware_contract.json
             results/qwen_gate_last.json
@@ -217,6 +219,7 @@ jobs:
             native_sim/results/last_fuzz_report.json
             native_sim/results/coverage_summary.json
             hardware_sim/results/machine_pin_erc.json
+            hardware_sim/results/machine_pin_mutations.json
             xiaozhi_sim/results/protocol_campaign.json
             xiaozhi_sim/results/firmware_contract.json
             results/qwen_gate_last.json

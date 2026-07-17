@@ -693,6 +693,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     native_coverage_runner = FZ_ROOT / "native_sim" / "run_product_core_coverage.py"
     paper_contract_runner = FZ_ROOT / "hardware_sim" / "run_paper_firmware_contract.py"
     machine_pin_erc_runner = FZ_ROOT / "hardware_sim" / "run_machine_pin_erc.py"
+    machine_pin_mutation_runner = FZ_ROOT / "hardware_sim" / "run_machine_pin_mutation_campaign.py"
     if grbl is not None and machine_pin_erc_runner.is_file():
         code, dur = _run([sys.executable, str(machine_pin_erc_runner), "--grbl-root", str(grbl)])
         layers.append(
@@ -708,6 +709,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
     else:
         layers.append(Layer(id="machine_pin_erc", name="eda_style_machine_pin_erc", status="skip", detail="GRBL_ROOT unavailable"))
+    if grbl is not None and machine_pin_mutation_runner.is_file():
+        code, dur = _run([sys.executable, str(machine_pin_mutation_runner), "--grbl-root", str(grbl)])
+        layers.append(Layer(id="machine_pin_mutations", name="firmware_pin_checker_defect_injection", status="pass" if code == 0 else "fail", exit_code=code, duration_s=dur, log_hint="hardware_sim/results/machine_pin_mutations.json", detail="valid baseline must pass and all six temporary firmware pin defects must be rejected"))
+    else:
+        layers.append(Layer(id="machine_pin_mutations", name="firmware_pin_checker_defect_injection", status="skip", detail="GRBL_ROOT unavailable"))
     if grbl is not None and paper_contract_runner.is_file():
         code, dur = _run([sys.executable, str(paper_contract_runner), "--grbl-root", str(grbl)])
         layers.append(

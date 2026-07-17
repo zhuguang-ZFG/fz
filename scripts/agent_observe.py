@@ -137,6 +137,17 @@ def _machine_pin_findings(report: Any) -> List[Dict[str, Any]]:
     return []
 
 
+def _machine_pin_mutation_findings(report: Any) -> List[Dict[str, Any]]:
+    if not isinstance(report, dict):
+        return []
+    score = report.get("mutation_score") if isinstance(report.get("mutation_score"), dict) else {}
+    if report.get("status") == "fail":
+        return [_finding("hard", "machine_pin_mutations", "firmware pin checker missed an injected defect", detail=json.dumps(report.get("failures", [])[:5], ensure_ascii=False, sort_keys=True), action="python hardware_sim/run_machine_pin_mutation_campaign.py", refs=["hardware_sim/results/machine_pin_mutations.json"])]
+    if report.get("status") == "pass":
+        return [_finding("info", "machine_pin_mutations", "firmware pin checker mutation score", detail=f"killed {score.get('killed', 0)}/{score.get('total', 0)} temporary pre-flash defects; valid baseline passed", refs=["hardware_sim/results/machine_pin_mutations.json"])]
+    return []
+
+
 def _fail_stems_without_golden() -> List[str]:
     """R39: fail cases that lack a matching golden_* contract (coverage gap)."""
     fail_dir = FZ_ROOT / "protocol_sim" / "cases" / "fail"
@@ -174,6 +185,7 @@ def build_observe() -> Dict[str, Any]:
     paper_interactions = _read_json(FZ_ROOT / "hardware_sim" / "results" / "paper_plant_interactions.json") or {}
     paper_contract = _read_json(FZ_ROOT / "hardware_sim" / "results" / "paper_firmware_contract.json") or {}
     machine_pin_erc = _read_json(FZ_ROOT / "hardware_sim" / "results" / "machine_pin_erc.json") or {}
+    machine_pin_mutations = _read_json(FZ_ROOT / "hardware_sim" / "results" / "machine_pin_mutations.json") or {}
     paper_transients = _read_json(FZ_ROOT / "hardware_sim" / "results" / "paper_plant_transients.json") or {}
     triage = _read_json(RESULTS / "triage_last.json") or {}
     integrity = _read_json(
@@ -213,6 +225,7 @@ def build_observe() -> Dict[str, Any]:
     if paper_transient_finding is not None:
         findings.append(paper_transient_finding)
     findings.extend(_machine_pin_findings(machine_pin_erc))
+    findings.extend(_machine_pin_mutation_findings(machine_pin_mutations))
 
     for c in (triage.get("protocol_failures") if isinstance(triage, dict) else None) or []:
         if not isinstance(c, dict):
@@ -707,6 +720,7 @@ def build_observe() -> Dict[str, Any]:
                 if isinstance(machine_pin_erc, dict)
                 else None
             ),
+            "machine_pin_mutation_score": (machine_pin_mutations.get("mutation_score") if isinstance(machine_pin_mutations, dict) else None),
         },
         "findings": findings,
         "next_actions": next_actions[:12],

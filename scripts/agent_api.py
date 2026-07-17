@@ -45,6 +45,7 @@ REPORTS = {
     "paper_transients": FZ_ROOT / "hardware_sim" / "results" / "paper_plant_transients.json",
     "paper_contract": FZ_ROOT / "hardware_sim" / "results" / "paper_firmware_contract.json",
     "machine_pin_erc": FZ_ROOT / "hardware_sim" / "results" / "machine_pin_erc.json",
+    "machine_pin_mutations": FZ_ROOT / "hardware_sim" / "results" / "machine_pin_mutations.json",
     "native": FZ_ROOT / "native_sim" / "results" / "last_report.json",
     "native_fuzz": FZ_ROOT / "native_sim" / "results" / "last_fuzz_report.json",
     "native_coverage": FZ_ROOT / "native_sim" / "results" / "coverage_summary.json",
