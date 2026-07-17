@@ -548,6 +548,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             detail="coverage policy regression tests",
         )
     )
+    code, dur = _run([sys.executable, "-m", "unittest", "discover", "-s", "chip_sim", "-p", "test_*.py", "-q"])
+    layers.append(Layer(id="chip_units", name="chip_startup_oracle_unittest", status="pass" if code == 0 else "fail", exit_code=code, duration_s=dur, log_hint="python -m unittest discover -s chip_sim -p test_*.py -q", detail="ESP32 startup log panic, watchdog, restart-loop, subsystem-init, and ready-marker detector"))
     code, dur = _run([sys.executable, "-m", "unittest", "scripts.test_agent_api", "-q"])
     layers.append(
         Layer(
@@ -714,6 +716,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         layers.append(Layer(id="machine_pin_mutations", name="firmware_pin_checker_defect_injection", status="pass" if code == 0 else "fail", exit_code=code, duration_s=dur, log_hint="hardware_sim/results/machine_pin_mutations.json", detail="valid baseline must pass and all six temporary firmware pin defects must be rejected"))
     else:
         layers.append(Layer(id="machine_pin_mutations", name="firmware_pin_checker_defect_injection", status="skip", detail="GRBL_ROOT unavailable"))
+    wokwi_runner = FZ_ROOT / "chip_sim" / "run_wokwi_smoke.py"
+    if grbl is not None and os.environ.get("WOKWI_CLI_TOKEN") and wokwi_runner.is_file():
+        code, dur = _run([sys.executable, str(wokwi_runner), "--grbl-root", str(grbl), "--timeout-ms", "30000", "--expect-text", "Grbl", "--require"])
+        layers.append(Layer(id="wokwi_startup", name="wokwi_cloud_esp32_startup", status="pass" if code == 0 else "fail", exit_code=code, duration_s=dur, log_hint="results/wokwi/wokwi_smoke_report.json", detail="optional cloud startup: ready marker required; panic/watchdog/restart/init failures rejected"))
+    else:
+        layers.append(Layer(id="wokwi_startup", name="wokwi_cloud_esp32_startup", status="skip", detail="WOKWI_CLI_TOKEN or firmware unavailable; cloud initialization not claimed"))
     if grbl is not None and paper_contract_runner.is_file():
         code, dur = _run([sys.executable, str(paper_contract_runner), "--grbl-root", str(grbl)])
         layers.append(

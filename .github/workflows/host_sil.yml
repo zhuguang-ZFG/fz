@@ -21,6 +21,10 @@ on:
         description: Optional Linux build+gate (R32 parked; not default)
         type: boolean
         default: false
+      run_wokwi_startup:
+        description: Build test_drive.h and run Wokwi cloud ESP32 startup smoke
+        type: boolean
+        default: false
 
 jobs:
   # R28: on weekly schedule only run standard (avoid paying for quick+standard).
@@ -91,6 +95,8 @@ jobs:
             native_sim/results/coverage_summary.json
             hardware_sim/results/machine_pin_erc.json
             hardware_sim/results/machine_pin_mutations.json
+            results/wokwi/wokwi_smoke_report.json
+            results/wokwi/serial.log
             xiaozhi_sim/results/protocol_campaign.json
             xiaozhi_sim/results/firmware_contract.json
             results/qwen_gate_last.json
@@ -155,6 +161,8 @@ jobs:
             native_sim/results/coverage_summary.json
             hardware_sim/results/machine_pin_erc.json
             hardware_sim/results/machine_pin_mutations.json
+            results/wokwi/wokwi_smoke_report.json
+            results/wokwi/serial.log
             xiaozhi_sim/results/protocol_campaign.json
             xiaozhi_sim/results/firmware_contract.json
             results/qwen_gate_last.json
@@ -220,7 +228,65 @@ jobs:
             native_sim/results/coverage_summary.json
             hardware_sim/results/machine_pin_erc.json
             hardware_sim/results/machine_pin_mutations.json
+            results/wokwi/wokwi_smoke_report.json
+            results/wokwi/serial.log
             xiaozhi_sim/results/protocol_campaign.json
             xiaozhi_sim/results/firmware_contract.json
             results/qwen_gate_last.json
+          if-no-files-found: warn
+
+  wokwi-startup:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_wokwi_startup == 'true' }}
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      WOKWI_CLI_TOKEN: ${{ secrets.WOKWI_CLI_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout product firmware
+        uses: actions/checkout@v4
+        with:
+          repository: zhuguang-ZFG/Grbl_Esp32
+          ref: Branch_736afa70
+          path: product-firmware
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO
+        run: python -m pip install platformio
+
+      - name: Install Wokwi CLI
+        shell: pwsh
+        run: |
+          if (-not $env:WOKWI_CLI_TOKEN) { throw 'GitHub secret WOKWI_CLI_TOKEN is required' }
+          iwr https://wokwi.com/ci/install.ps1 -useb | iex
+
+      - name: Build safe test_drive firmware
+        shell: pwsh
+        working-directory: product-firmware
+        run: |
+          $env:PLATFORMIO_BUILD_FLAGS='-DMACHINE_FILENAME=test_drive.h'
+          pio run -e release
+
+      - name: Wokwi ESP32 startup gate
+        shell: pwsh
+        run: |
+          python chip_sim/run_wokwi_smoke.py --grbl-root product-firmware --timeout-ms 30000 --expect-text Grbl --require
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload Wokwi startup evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wokwi-esp32-startup
+          path: |
+            results/wokwi/wokwi_smoke_report.json
+            results/wokwi/serial.log
+            results/wokwi/wokwi.toml
+            results/wokwi/diagram.json
           if-no-files-found: warn

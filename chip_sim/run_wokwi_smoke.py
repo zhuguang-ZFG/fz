@@ -28,10 +28,21 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
+from startup_log_oracle import analyze_startup_log
+
 
 FZ_ROOT = Path(__file__).resolve().parent.parent
 WOKWI_DIR = Path(__file__).resolve().parent / "wokwi"
 RESULTS = FZ_ROOT / "results" / "wokwi"
+
+
+def classify_cloud_error(exit_code: int, stdout: str, stderr: str) -> Optional[str]:
+    cli_text = f"{stdout}\n{stderr}".lower()
+    if "unauthorized" in cli_text:
+        return "unauthorized"
+    if exit_code == 42:
+        return "timeout"
+    return None
 
 
 def find_wokwi_cli() -> Optional[str]:
@@ -108,7 +119,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--timeout-ms", type=int, default=20000)
     ap.add_argument(
         "--expect-text",
-        default="",
+        default="Grbl",
         help="success if serial contains this (official CLI flag)",
     )
     ap.add_argument(
@@ -227,9 +238,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     print("RUN:", " ".join(cmd))
     env = os.environ.copy()
     env["WOKWI_CLI_TOKEN"] = token
-    proc = subprocess.run(cmd, cwd=str(work), env=env)
+    proc = subprocess.run(cmd, cwd=str(work), env=env, capture_output=True, text=True, errors="replace")
+    if proc.stdout:
+        print(proc.stdout, end="")
+    if proc.stderr:
+        print(proc.stderr, end="", file=sys.stderr)
     report["exit_code"] = proc.returncode
-    report["status"] = "pass" if proc.returncode == 0 else "fail"
+    report["cli_stdout_tail"] = proc.stdout[-4000:]
+    report["cli_stderr_tail"] = proc.stderr[-4000:]
+    report["cloud_error"] = classify_cloud_error(proc.returncode, proc.stdout, proc.stderr)
+    serial_log = work / "serial.log"
+    serial_text = serial_log.read_text(encoding="utf-8", errors="replace") if serial_log.is_file() else ""
+    startup = analyze_startup_log(serial_text, [args.expect_text] if args.expect_text else [])
+    report["startup"] = startup
+    report["serial_log"] = str(serial_log)
+    report["status"] = "pass" if proc.returncode == 0 and not report["cloud_error"] and startup["status"] == "pass" else "fail"
     # timeout exit 42 per Espressif idf-wokwi docs
     if proc.returncode == 42:
         report["note"] = "timeout (official exit 42)"
@@ -241,7 +264,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "HONESTY: Wokwi green ≠ paper/BT/OTA; host SIL remains agent_gate.",
         flush=True,
     )
-    return 0 if proc.returncode == 0 else 1
+    return 0 if report["status"] == "pass" else 1
 
 
 if __name__ == "__main__":

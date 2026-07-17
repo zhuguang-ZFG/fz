@@ -63,6 +63,7 @@ Last updated: 2026-07-17
 | R64 | Fail-closed pin coverage and waiver lifecycle | **done** | Unknown pin macros block; endpoint-bound justified waivers; coverage and remediation report |
 | R65 | Official MCP stdio server | **done** | SDK v1 adapter, 13 tools, 24 fixed resources, structured errors, subprocess handshake, CI/gate evidence |
 | R66 | Firmware pin checker mutation score | **done** | Temporary header mutations require baseline pass + 6/6 pre-flash defects rejected; no EDA configuration |
+| R67 | Wokwi ESP32 initialization gate | **done** | Startup UART oracle + optional token-gated cloud run + manual CI test_drive build; real cloud pass requires valid secret |
 | R53 | Finite-state + metamorphic product checks | **done** | Paper/BT reducer state exploration + protocol input transformations in standard gate |
 | R54 | Protocol input-boundary classification | **done** | Numeric axis-word validation; system/malformed command negative matrix + product build |
 | R55 | Deterministic paper Plant 2.0 | **done** | Virtual time + 10 fault profiles + pairwise combinations + 12/12 coverage + Agent API/gate evidence |

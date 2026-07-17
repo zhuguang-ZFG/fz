@@ -32,6 +32,18 @@ python chip_sim/probe_chip_tools.py --firmware-hint
 python scripts/win_full_sim.py --with-chip-probe
 ```
 
+## Wokwi initialization gate
+
+`run_wokwi_smoke.py` now requires the `Grbl` ready marker and rejects Guru Meditation, panic/abort, watchdog, brownout, task allocation, filesystem/radio/I2S initialization failures, and restart loops. `agent_gate` always runs the offline startup-oracle tests; it runs the real cloud layer only when `WOKWI_CLI_TOKEN` and firmware artifacts are available. GitHub Actions exposes the manual `run_wokwi_startup` job and expects a repository secret named `WOKWI_CLI_TOKEN`.
+
+```powershell
+$env:GRBL_ROOT='D:\Users\Grbl_Esp32'
+$env:WOKWI_CLI_TOKEN='set locally; never commit'
+python chip_sim/run_wokwi_smoke.py --grbl-root $env:GRBL_ROOT --expect-text Grbl --require
+```
+
+An authentication failure is reported separately from a firmware initialization failure. Wokwi startup green still does not prove flashing hardware, paper mechanics, Bluetooth RF, OTA, or HIL acceptance.
+
 ## QEMU path (experimental, optional)
 
 Official merge + run: [esp-toolchain-docs qemu/esp32](https://github.com/espressif/esp-toolchain-docs/blob/main/qemu/esp32/README.md) · [IDF QEMU guide](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/tools/qemu.html).

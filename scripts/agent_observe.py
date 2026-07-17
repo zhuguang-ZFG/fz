@@ -148,6 +148,18 @@ def _machine_pin_mutation_findings(report: Any) -> List[Dict[str, Any]]:
     return []
 
 
+def _wokwi_startup_findings(report: Any, layer_status: Optional[str]) -> List[Dict[str, Any]]:
+    if layer_status == "skip" or not isinstance(report, dict):
+        return []
+    if report.get("status") == "pass":
+        startup = report.get("startup") if isinstance(report.get("startup"), dict) else {}
+        return [_finding("info", "wokwi_startup", "Wokwi ESP32 startup reached firmware ready marker", detail=f"ready={startup.get('ready_hits', [])}; boots={startup.get('boot_count', 0)}", refs=["results/wokwi/wokwi_smoke_report.json", "results/wokwi/serial.log"])]
+    if report.get("cloud_error") == "unauthorized":
+        return [_finding("hard", "wokwi_startup", "Wokwi cloud authentication failed", detail="WOKWI_CLI_TOKEN was rejected before firmware startup", action="refresh the GitHub/user WOKWI_CLI_TOKEN and rerun", refs=["results/wokwi/wokwi_smoke_report.json"])]
+    startup = report.get("startup") if isinstance(report.get("startup"), dict) else {}
+    return [_finding("hard", "wokwi_startup", "ESP32 cloud startup did not initialize cleanly", detail=json.dumps(startup.get("fatal_events", [])[:8], ensure_ascii=False, sort_keys=True), action="inspect results/wokwi/serial.log and rerun chip_sim/run_wokwi_smoke.py", refs=["results/wokwi/wokwi_smoke_report.json", "results/wokwi/serial.log"])]
+
+
 def _fail_stems_without_golden() -> List[str]:
     """R39: fail cases that lack a matching golden_* contract (coverage gap)."""
     fail_dir = FZ_ROOT / "protocol_sim" / "cases" / "fail"
@@ -176,6 +188,7 @@ def _fail_stems_without_golden() -> List[str]:
 
 def build_observe() -> Dict[str, Any]:
     gate = _read_json(RESULTS / "agent_gate_last.json") or {}
+    gate_layers = {str(layer.get("id")): str(layer.get("status")) for layer in (gate.get("layers") if isinstance(gate, dict) else None) or [] if isinstance(layer, dict)}
     soft = _read_json(FZ_ROOT / "protocol_sim" / "results" / "soft_divergence.json") or {}
     soft_al = _read_json(FZ_ROOT / "protocol_sim" / "results" / "soft_allowlist_last.json") or {}
     golden = _read_json(FZ_ROOT / "protocol_sim" / "results" / "golden_last.json") or {}
@@ -186,6 +199,7 @@ def build_observe() -> Dict[str, Any]:
     paper_contract = _read_json(FZ_ROOT / "hardware_sim" / "results" / "paper_firmware_contract.json") or {}
     machine_pin_erc = _read_json(FZ_ROOT / "hardware_sim" / "results" / "machine_pin_erc.json") or {}
     machine_pin_mutations = _read_json(FZ_ROOT / "hardware_sim" / "results" / "machine_pin_mutations.json") or {}
+    wokwi_startup = _read_json(FZ_ROOT / "results" / "wokwi" / "wokwi_smoke_report.json") or {}
     paper_transients = _read_json(FZ_ROOT / "hardware_sim" / "results" / "paper_plant_transients.json") or {}
     triage = _read_json(RESULTS / "triage_last.json") or {}
     integrity = _read_json(
@@ -226,6 +240,7 @@ def build_observe() -> Dict[str, Any]:
         findings.append(paper_transient_finding)
     findings.extend(_machine_pin_findings(machine_pin_erc))
     findings.extend(_machine_pin_mutation_findings(machine_pin_mutations))
+    findings.extend(_wokwi_startup_findings(wokwi_startup, gate_layers.get("wokwi_startup")))
 
     for c in (triage.get("protocol_failures") if isinstance(triage, dict) else None) or []:
         if not isinstance(c, dict):
@@ -721,6 +736,7 @@ def build_observe() -> Dict[str, Any]:
                 else None
             ),
             "machine_pin_mutation_score": (machine_pin_mutations.get("mutation_score") if isinstance(machine_pin_mutations, dict) else None),
+            "wokwi_startup_status": (wokwi_startup.get("status") if gate_layers.get("wokwi_startup") != "skip" and isinstance(wokwi_startup, dict) else None),
         },
         "findings": findings,
         "next_actions": next_actions[:12],

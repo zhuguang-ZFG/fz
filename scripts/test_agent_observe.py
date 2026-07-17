@@ -183,6 +183,28 @@ class TestAgentObserve(unittest.TestCase):
         self.assertEqual(findings[0]["severity"], "info")
         self.assertIn("6/6", findings[0]["detail"])
 
+    def test_wokwi_auth_failure_is_not_misreported_as_firmware_failure(self) -> None:
+        import importlib.util
+
+        path = FZ / "scripts" / "agent_observe.py"
+        spec = importlib.util.spec_from_file_location("agent_observe", path)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        findings = mod._wokwi_startup_findings({"status": "fail", "cloud_error": "unauthorized"}, "fail")
+        self.assertEqual(findings[0]["severity"], "hard")
+        self.assertIn("authentication", findings[0]["title"])
+
+    def test_skipped_wokwi_ignores_stale_report(self) -> None:
+        import importlib.util
+
+        path = FZ / "scripts" / "agent_observe.py"
+        spec = importlib.util.spec_from_file_location("agent_observe", path)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        self.assertEqual(mod._wokwi_startup_findings({"status": "fail"}, "skip"), [])
+
 
 if __name__ == "__main__":
     unittest.main()
