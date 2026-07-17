@@ -910,6 +910,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
         )
 
+    paper_interaction_runner = FZ_ROOT / "hardware_sim" / "run_paper_plant_interactions.py"
+    if paper_interaction_runner.is_file():
+        code, dur = _run([sys.executable, str(paper_interaction_runner)])
+        layers.append(
+            Layer(
+                id="paper_interactions",
+                name="bounded_paper_interaction_campaign",
+                status="pass" if code == 0 else "fail",
+                exit_code=code,
+                duration_s=dur,
+                log_hint="hardware_sim/results/paper_plant_interactions.json",
+                detail="48 deterministic configurations, safety properties, and 44/44 pairwise interactions",
+            )
+        )
+    else:
+        layers.append(
+            Layer(
+                id="paper_interactions",
+                name="bounded_paper_interaction_campaign",
+                status="skip",
+                detail="paper interaction runner unavailable",
+            )
+        )
+
     need_hw = profile in ("standard", "deep", "firmware")
     if need_hw:
         # hardware needs -s/-b step logs → own sim process (not shared)

@@ -18,6 +18,8 @@ class TestAgentGate(unittest.TestCase):
             cwd=str(FZ),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         self.assertEqual(r.returncode, 0)
         self.assertIn("agent_gate", r.stdout.lower())
@@ -33,6 +35,8 @@ class TestAgentGate(unittest.TestCase):
             cwd=str(FZ),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=180,
         )
         self.assertEqual(r.returncode, 0, msg=r.stdout[-2000:] + r.stderr[-1000:])

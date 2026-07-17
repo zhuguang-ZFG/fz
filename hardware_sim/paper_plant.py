@@ -177,6 +177,7 @@ class PaperTransportSimulation:
             "reason": self.reason,
             "virtual_duration_ms": self.finished_at_ms if self.finished_at_ms is not None else self.clock.now_ms,
             "final_position_mm": round(self.plant.position_mm, 3),
+            "terminal_motor_on": self.plant.motor_on,
             "covered": sorted(self.covered),
             "transitions": self.transitions,
         }

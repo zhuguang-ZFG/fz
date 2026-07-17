@@ -63,6 +63,21 @@ def _is_allowlisted(name: str, allowed_names: set[str]) -> bool:
     )
 
 
+def _paper_interaction_finding(report: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(report, dict) or report.get("status") != "fail":
+        return None
+    minimal = report.get("minimal_failure")
+    detail = json.dumps(minimal, ensure_ascii=False, sort_keys=True) if isinstance(minimal, dict) else "no minimal failure recorded"
+    return _finding(
+        "hard",
+        "paper_interactions",
+        "paper interaction safety property failed",
+        detail=detail,
+        action="python hardware_sim/run_paper_plant_interactions.py",
+        refs=["hardware_sim/results/paper_plant_interactions.json"],
+    )
+
+
 def _fail_stems_without_golden() -> List[str]:
     """R39: fail cases that lack a matching golden_* contract (coverage gap)."""
     fail_dir = FZ_ROOT / "protocol_sim" / "cases" / "fail"
@@ -97,6 +112,7 @@ def build_observe() -> Dict[str, Any]:
     schema = _read_json(FZ_ROOT / "protocol_sim" / "results" / "case_schema_last.json") or {}
     last_proto = _read_json(FZ_ROOT / "protocol_sim" / "results" / "last_report.json")
     native_cov = _read_json(FZ_ROOT / "native_sim" / "results" / "coverage_summary.json") or {}
+    paper_interactions = _read_json(FZ_ROOT / "hardware_sim" / "results" / "paper_plant_interactions.json") or {}
     triage = _read_json(RESULTS / "triage_last.json") or {}
     integrity = _read_json(
         FZ_ROOT / "protocol_sim" / "results" / "integrity_inject_last.json"
@@ -124,6 +140,10 @@ def build_observe() -> Dict[str, Any]:
                 refs=[str(L.get("log_hint") or ""), str(RESULTS / "triage_last.md")],
             )
         )
+
+    paper_interaction_finding = _paper_interaction_finding(paper_interactions)
+    if paper_interaction_finding is not None:
+        findings.append(paper_interaction_finding)
 
     for c in (triage.get("protocol_failures") if isinstance(triage, dict) else None) or []:
         if not isinstance(c, dict):

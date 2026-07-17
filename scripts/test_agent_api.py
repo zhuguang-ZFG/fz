@@ -230,6 +230,26 @@ class TestAgentApi(unittest.TestCase):
         self.assertEqual(response["error"]["code"], "unknown_case")
         run.assert_not_called()
 
+    def test_run_paper_interactions_uses_request_scoped_report(self) -> None:
+        request_id = "interaction-test"
+        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
+        request_report = API.RESULTS / "paper_plant_requests" / f"{report_key}-interactions.json"
+        request_report.parent.mkdir(parents=True, exist_ok=True)
+        request_report.write_text(json.dumps({"status": "pass", "configuration_count": 48}), encoding="utf-8")
+        with mock.patch.object(
+            API,
+            "_run",
+            return_value={"exit_code": 0, "duration_s": 1.0, "stdout_tail": "", "stderr_tail": ""},
+        ) as run:
+            response = API.handle(
+                {"request_id": request_id, "operation": "run_paper_interactions", "params": {"timeout_s": 10}}
+            )
+        self.assertTrue(response["ok"])
+        self.assertEqual(response["result"]["configuration_count"], 48)
+        command, timeout = run.call_args.args
+        self.assertEqual(command[-2:], ["--json-out", str(request_report)])
+        self.assertEqual(timeout, 10.0)
+
     def test_lists_qwen_profiles(self) -> None:
         response = API.handle({"operation": "list_qwen_profiles"})
         self.assertTrue(response["ok"])

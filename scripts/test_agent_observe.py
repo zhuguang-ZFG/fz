@@ -59,6 +59,28 @@ class TestAgentObserve(unittest.TestCase):
         missing = mod._fail_stems_without_golden()
         self.assertIsInstance(missing, list)
 
+    def test_paper_interaction_failure_surfaces_minimal_config(self) -> None:
+        import importlib.util
+
+        path = FZ / "scripts" / "agent_observe.py"
+        spec = importlib.util.spec_from_file_location("agent_observe", path)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        finding = mod._paper_interaction_finding(
+            {
+                "status": "fail",
+                "minimal_failure": {
+                    "config": {"paper": "missing", "drive": "normal"},
+                    "violations": ["unsafe_or_missing_completion"],
+                },
+            }
+        )
+        self.assertIsNotNone(finding)
+        self.assertEqual(finding["severity"], "hard")
+        self.assertIn("missing", finding["detail"])
+        self.assertEqual(finding["action"], "python hardware_sim/run_paper_plant_interactions.py")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -67,6 +67,7 @@ bounce, motor reverse, timeout, and pairwise slip+bounce/slip+jam combinations w
 ```powershell
 python hardware_sim/run_paper_plant_campaign.py
 python hardware_sim/run_paper_plant_campaign.py --only jam --only sensor_bounce
+python hardware_sim/run_paper_plant_interactions.py
 ```
 
 The report is written to `hardware_sim/results/paper_plant_campaign.json` and is
@@ -74,6 +75,16 @@ available through the Agent API `run_paper_plant` operation and `paper_plant`
 report resource. Full campaigns enforce fault-coverage closure. This is a
 mechanical/sensor model, not proof of ESP32 scheduling, real torque/friction,
 Bluetooth transport, or physical paper-path HIL.
+
+The interaction runner exhaustively evaluates a bounded 48-case space across
+paper presence, feed speed, drive faults, and sensor faults. Each configuration
+is replayed twice for determinism and checked for fail-closed completion,
+terminal motor shutdown, a final transition, and known terminal reasons. Its
+report proves 44/44 pairwise value interactions and emits `minimal_failure`
+when any property fails. This follows the combination-coverage pattern used by
+Microsoft PICT while retaining exhaustive coverage because virtual time makes
+the complete bounded product inexpensive. Agents can invoke the same fixed
+runner through `run_paper_interactions` and read `paper_interactions` evidence.
 ## Open-source fusion
 
 See `fusion_notes.md` and repo-wide [opensource-sim-fusion-catalog](../docs/specs/2026-07-14-opensource-sim-fusion-catalog.md).  
