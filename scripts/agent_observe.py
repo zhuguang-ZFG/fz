@@ -54,6 +54,15 @@ def _finding(
     }
 
 
+def _is_allowlisted(name: str, allowed_names: set[str]) -> bool:
+    normalized = name.lower()
+    return any(
+        normalized == candidate or normalized.endswith(candidate) or candidate.endswith(normalized)
+        for candidate in allowed_names
+        if candidate
+    )
+
+
 def _fail_stems_without_golden() -> List[str]:
     """R39: fail cases that lack a matching golden_* contract (coverage gap)."""
     fail_dir = FZ_ROOT / "protocol_sim" / "cases" / "fail"
@@ -147,12 +156,16 @@ def build_observe() -> Dict[str, Any]:
 
     # --- soft / product divergence (always interesting) ---
     high = list(soft.get("high_divergence") or []) if isinstance(soft, dict) else []
+    allowed_high = list(soft_al.get("allowed_high") or []) if isinstance(soft_al, dict) else []
+    allowed_names = {str(item.get("name") or item.get("allow_match") or "").lower() for item in allowed_high if isinstance(item, dict)}
+
     for name in high:
+        severity = "info" if _is_allowlisted(str(name), allowed_names) else "soft"
         findings.append(
             _finding(
-                "soft",
+                severity,
                 "product_divergence",
-                f"soft high divergence: {name}",
+                f"allowlisted soft divergence: {name}" if severity == "info" else f"soft high divergence: {name}",
                 detail="Product sample vs grblHAL host SIL — not hard gate fail",
                 action=(
                     "read docs/PRODUCT_SOFT_DIVERGENCE.md (R42 A/C); "
@@ -216,6 +229,8 @@ def build_observe() -> Dict[str, Any]:
         # extract first error codes from detail if present
         detail = str(sf.get("detail") or "")
         sev = "soft" if ratio >= 0.3 or name in high else "info"
+        if _is_allowlisted(name, allowed_names):
+            sev = "info"
         findings.append(
             _finding(
                 sev,
@@ -374,7 +389,10 @@ def build_observe() -> Dict[str, Any]:
                 if not isinstance(item, dict):
                     continue
                 pct = item.get("lines_percent")
-                details.append(f"{name} lines={pct}% funcs={item.get('functions_percent')}%")
+                funcs = item.get("functions_percent")
+                pct_text = f"{pct:.2f}" if isinstance(pct, (int, float)) else str(pct)
+                funcs_text = f"{funcs:.2f}" if isinstance(funcs, (int, float)) else str(funcs)
+                details.append(f"{name} lines={pct_text}% funcs={funcs_text}%")
                 if isinstance(pct, (int, float)) and pct < 90.0:
                     low.append(f"{name}={pct}%")
             findings.append(

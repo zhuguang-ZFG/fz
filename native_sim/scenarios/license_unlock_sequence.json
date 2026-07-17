@@ -1,0 +1,7 @@
+{
+  "name": "license_unlock_sequence",
+  "domain": "license",
+  "license": {"chip_high": "0x12345678", "chip_low": "0x9abcdef0", "key_high": "0x8B3C9A1F", "key_low": "0xE72F4D06"},
+  "lines": ["0", "0x1", "expected"],
+  "expect": [{"license_before": false, "license_after": false, "supplied_matches": false, "expected_nonzero": true}, {"license_before": false, "license_after": false, "supplied_matches": false}, {"license_before": false, "license_after": true, "supplied_matches": true}]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "modal_mixed_block_sequence",
+  "domain": "protocol",
+  "paper_running": true,
+  "stateful_modal": true,
+  "lines": ["G1 X1 F100", "G91 X2", "G20 Y1", "G93 Z1 F2", "G10 L2 P1 X0", "G92 X0", "G80", "G90 X3"],
+  "expect": [
+    {"motion_line": true, "defer_motion": true, "modal_after": true},
+    {"motion_line": true, "defer_motion": true, "distance": "incremental"},
+    {"motion_line": true, "defer_motion": true, "units": "inches"},
+    {"motion_line": true, "defer_motion": true, "feed_mode": "inverse_time"},
+    {"motion_line": false, "defer_motion": false, "modal_after": true},
+    {"motion_line": false, "defer_motion": false, "modal_after": true},
+    {"motion_line": false, "defer_motion": false, "modal_after": false},
+    {"motion_line": false, "defer_motion": false, "distance": "absolute"}
+  ]
+}

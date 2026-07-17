@@ -1,0 +1,7 @@
+{
+  "name": "modal_units_sequence",
+  "domain": "protocol",
+  "stateful_modal": true,
+  "lines": ["G90 G21 G94 G1 X0 F100", "G91 G20 G93", "X1", "G90 G21 G94", "X2"],
+  "expect": [{"distance": "absolute", "units": "mm", "feed_mode": "units_per_min"}, {"distance": "incremental", "units": "inches", "feed_mode": "inverse_time"}, {"motion_line": true, "modal_before": true}, {"distance": "absolute", "units": "mm", "feed_mode": "units_per_min"}, {"motion_line": true, "modal_before": true}]
+}

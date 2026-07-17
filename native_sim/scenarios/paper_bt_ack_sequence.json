@@ -1,0 +1,6 @@
+{
+  "name": "paper_bt_ack_sequence",
+  "domain": "paper_bt_ack",
+  "events": ["spp_connected", "realtime_command", "host_ack", "poll_busy", "poll_idle", "change_completed", "host_ack", "spp_disconnected"],
+  "expect": [{"armed": true, "pending": false, "running": false}, {"armed": true, "pending": false}, {"armed": false, "pending": true}, {"pending": true, "running": false}, {"pending": false, "running": true}, {"pending": false, "running": false}, {"pending": false}, {"armed": false, "pending": false}]
+}

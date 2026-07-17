@@ -20,6 +20,7 @@ FZ_ROOT = Path(__file__).resolve().parent.parent
 HERE = Path(__file__).resolve().parent
 RESULTS = HERE / "results"
 SOURCE = HERE / "product_core_fuzz.cpp"
+DEFAULT_POLICY = HERE / "coverage_policy.json"
 
 
 def _tool(name: str, compiler: Optional[Path]) -> Optional[Path]:
@@ -72,7 +73,7 @@ def _percent(summary: Dict[str, Any], key: str) -> Optional[float]:
     covered = section.get("covered")
     if not isinstance(count, int) or count <= 0 or not isinstance(covered, int):
         return None
-    return round(covered * 100.0 / count, 2)
+    return covered * 100.0 / count
 
 
 def _file_summary(raw: Dict[str, Any], suffixes: Sequence[str]) -> Dict[str, Any]:
@@ -95,14 +96,73 @@ def _file_summary(raw: Dict[str, Any], suffixes: Sequence[str]) -> Dict[str, Any
                     "lines_percent": _percent(summary, "lines"),
                     "functions_percent": _percent(summary, "functions"),
                     "regions_percent": _percent(summary, "regions"),
+                    "branches_percent": _percent(summary, "branches"),
                     "summary": summary,
                 }
     return result
 
 
+def _load_policy(path: Path) -> Dict[str, Dict[str, float]]:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    files = raw.get("files") if isinstance(raw, dict) else None
+    if not isinstance(files, dict) or not files:
+        raise ValueError("coverage policy must contain a non-empty 'files' object")
+    policy: Dict[str, Dict[str, float]] = {}
+    for filename, thresholds in files.items():
+        if not isinstance(filename, str) or not filename or not isinstance(thresholds, dict):
+            raise ValueError("coverage policy file entries must map names to thresholds")
+        parsed: Dict[str, float] = {}
+        for metric, minimum in thresholds.items():
+            if metric not in ("lines", "functions", "regions", "branches"):
+                raise ValueError(f"unsupported coverage metric: {metric}")
+            if (
+                isinstance(minimum, bool)
+                or not isinstance(minimum, (int, float))
+                or not 0 <= float(minimum) <= 100
+            ):
+                raise ValueError(f"invalid minimum for {filename} {metric}: {minimum}")
+            parsed[f"{metric}_percent"] = float(minimum)
+        if not parsed:
+            raise ValueError(f"coverage policy has no thresholds for {filename}")
+        policy[filename] = parsed
+    return policy
+
+
+def _coverage_violations(
+    files: Dict[str, Any], policy: Dict[str, Dict[str, float]]
+) -> List[Dict[str, Any]]:
+    violations: List[Dict[str, Any]] = []
+    for filename, thresholds in policy.items():
+        actual = files.get(filename)
+        if not isinstance(actual, dict):
+            violations.append({"file": filename, "metric": "file", "reason": "missing"})
+            continue
+        for metric, minimum in thresholds.items():
+            value = actual.get(metric)
+            if not isinstance(value, (int, float)):
+                violations.append(
+                    {"file": filename, "metric": metric, "minimum": minimum, "reason": "missing"}
+                )
+            elif float(value) < minimum:
+                violations.append(
+                    {
+                        "file": filename,
+                        "metric": metric,
+                        "actual": float(value),
+                        "minimum": minimum,
+                        "reason": "below_minimum",
+                    }
+                )
+    return violations
+
+
 def _write_report(report: Dict[str, Any]) -> None:
     RESULTS.mkdir(parents=True, exist_ok=True)
     (RESULTS / "coverage_summary.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+
+
+def _display_percent(value: Any) -> str:
+    return f"{value:.2f}" if isinstance(value, (int, float)) else "n/a"
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -114,6 +174,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     )
     parser.add_argument("--seed", type=lambda value: int(value, 0), default=0xC0FFEE)
     parser.add_argument("--iterations", type=int, default=20000)
+    parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     grbl_root = args.grbl_root.resolve()
@@ -123,7 +184,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     output = RESULTS / ("product_core_coverage.exe" if os.name == "nt" else "product_core_coverage")
     profraw = RESULTS / "product_core_coverage.profraw"
     profdata = RESULTS / "product_core_coverage.profdata"
-    wanted = ["PaperSystemCore.h", "WebUI/BTStateCore.h"]
+    policy_path = args.policy.resolve()
+    try:
+        policy = _load_policy(policy_path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        error = f"invalid coverage policy: {exc}"
+        _write_report(
+            {
+                "suite": "native_product_core_coverage",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "grbl_root": str(grbl_root),
+                "policy_path": str(policy_path),
+                "policy": {},
+                "violations": [
+                    {"file": str(policy_path), "metric": "policy", "reason": "invalid"}
+                ],
+                "files": {},
+                "stderr": error,
+                "status": "fail",
+            }
+        )
+        print(error, file=sys.stderr)
+        return 1
+    wanted = list(policy)
     report: Dict[str, Any] = {
         "suite": "native_product_core_coverage",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -135,6 +218,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "runtime_path_entries": [],
         "seed": args.seed,
         "iterations": args.iterations,
+        "policy_path": str(policy_path),
+        "policy": policy,
+        "violations": [],
         "files": {},
         "build_exit_code": None,
         "run_exit_code": None,
@@ -216,13 +302,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     raw = json.loads(export.stdout)
     files = _file_summary(raw, wanted)
     report["files"] = files
-    report["status"] = "pass" if all(name in files for name in wanted) else "fail"
+    violations = _coverage_violations(files, policy)
+    report["violations"] = violations
+    report["status"] = "pass" if not violations else "fail"
     _write_report(report)
     for name, item in files.items():
         print(
-            f"{name}: lines={item.get('lines_percent')}% "
-            f"functions={item.get('functions_percent')}% regions={item.get('regions_percent')}%"
+            f"{name}: lines={_display_percent(item.get('lines_percent'))}% "
+            f"functions={_display_percent(item.get('functions_percent'))}% "
+            f"regions={_display_percent(item.get('regions_percent'))}% "
+            f"branches={_display_percent(item.get('branches_percent'))}%"
         )
+    for violation in violations:
+        print(f"coverage violation: {violation}", file=sys.stderr)
     print(f"native_product_core_coverage status={report['status']} report={RESULTS / 'coverage_summary.json'}")
     return 0 if report["status"] == "pass" else 1
 

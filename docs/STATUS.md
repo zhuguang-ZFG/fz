@@ -49,6 +49,15 @@ Last updated: 2026-07-16
 | R43 | Native product BT/paper cores + ASan/UBSan | **done** | `native_sim/` + product core headers |
 | R44 | Native deterministic fuzz smoke | **done** | `native_sim/run_product_core_fuzz.py` + `agent_gate` |
 | R45 | Native product core coverage radar | **done** | `native_sim/run_product_core_coverage.py` + `agent_observe` |
+| R46 | Native coverage regression policy | **done** | `native_sim/coverage_policy.json` + gate unit tests |
+| R47 | MCP-ready transport-neutral Agent API | **done** | `scripts/agent_api.py` + structured tools/resources contract |
+| R48 | Product protocol policy vertical slice + grblHAL diff | **done** | `ProtocolDecisionCore.h` + native trace/diff + Agent API tools |
+| R49 | Stateful protocol policy scenario replay | **done** | G0-G3/G80 modal transitions + per-line trace artifact |
+| R50 | Validated scenario pack + failure minimization | **done** | JSON contract + gate layers + MCP discovery/run tools |
+| R51 | License/BT ACK/modal scenario domains | **done** | Product LicenseCore + PaperBtAckCore + four scenarios |
+| R52 | QWEN/Xiaozhi evidence adapter | **done** | Fixed pytest/FakeDevice/drawing profiles + MCP run_qwen_gate |
+| R53 | Finite-state + metamorphic product checks | **done** | Paper/BT reducer state exploration + protocol input transformations in standard gate |
+| R54 | Protocol input-boundary classification | **done** | Numeric axis-word validation; system/malformed command negative matrix + product build |
 | — | Real product paper/BT HIL | **human** | Grbl `ACCEPTANCE_CHECKLIST` + filled g3 YAML |
 | — | ESP32 chip QEMU **product** hard gate | **out of scope** | experimental smoke only |
 

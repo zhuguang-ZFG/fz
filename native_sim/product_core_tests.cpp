@@ -4,6 +4,8 @@
 #include <string>
 
 #include "PaperSystemCore.h"
+#include "LicenseCore.h"
+#include "PaperBtAckCore.h"
 #include "WebUI/BTStateCore.h"
 
 namespace {
@@ -100,6 +102,30 @@ void test_bt_ring() {
   check(drain(ring) == "xy", "reset ring contains only new generation");
 }
 
+
+void test_license_core() {
+  const uint32_t expected = LicenseCore::code_for_chip(0x12345678u, 0x9abcdef0u, 0x8b3c9a1fu, 0xe72f4d06u);
+  check(expected != 0u, "license code should be nonzero for fixture chip");
+  check(!LicenseCore::code_matches(expected, 0u), "zero license code must fail closed");
+  check(!LicenseCore::code_matches(expected, expected ^ 1u), "wrong license code must fail");
+  check(LicenseCore::code_matches(expected, expected), "expected license code must unlock");
+}
+
+void test_paper_bt_ack_core() {
+  PaperBtAckState state;
+  state = paper_bt_ack_reduce(state, PaperBtAckEvent::SppConnected);
+  check(state.armed && !state.pending, "SPP connect arms first ACK");
+  state = paper_bt_ack_reduce(state, PaperBtAckEvent::HostAck);
+  check(!state.armed && state.pending, "first host ACK schedules paper change");
+  state = paper_bt_ack_reduce(state, PaperBtAckEvent::PollBusy);
+  check(state.pending && !state.running, "busy poll keeps paper change pending");
+  state = paper_bt_ack_reduce(state, PaperBtAckEvent::PollIdle);
+  check(!state.pending && state.running, "idle poll starts paper change");
+  state = paper_bt_ack_reduce(state, PaperBtAckEvent::ChangeCompleted);
+  check(!state.pending && !state.running, "completed paper change clears state");
+  state = paper_bt_ack_reduce(state, PaperBtAckEvent::SppDisconnected);
+  check(!state.armed && !state.pending, "disconnect clears ACK state");
+}
 void test_paper_timing() {
   PaperTimingConfig config = timing_config(true);
   PaperPulseTiming timing =
@@ -143,6 +169,8 @@ void test_paper_sensor_and_deadline() {
 
 int main() {
   test_bt_reducer();
+  test_license_core();
+  test_paper_bt_ack_core();
   test_bt_message_policy();
   test_bt_ring();
   test_paper_timing();

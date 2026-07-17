@@ -1,0 +1,19 @@
+{
+  "name": "protocol_input_boundary_sequence",
+  "domain": "protocol",
+  "paper_running": true,
+  "stateful_modal": true,
+  "lines": ["G1 X1", "$X", "[ESP800]", "X", "Xfoo", "X+1", "Y-.5", "(X9)", "G38.2 Z-1 F10", "Z.25"],
+  "expect": [
+    {"motion_line": true, "defer_motion": true, "modal_after": true},
+    {"motion_line": false, "defer_motion": false},
+    {"motion_line": false, "defer_motion": false},
+    {"motion_line": false, "defer_motion": false},
+    {"motion_line": false, "defer_motion": false},
+    {"motion_line": true, "defer_motion": true},
+    {"motion_line": true, "defer_motion": true},
+    {"motion_line": false, "defer_motion": false},
+    {"motion_line": false, "defer_motion": false},
+    {"motion_line": true, "defer_motion": true}
+  ]
+}

@@ -296,6 +296,21 @@ def agent_hints_for_failures(layers: List[Layer]) -> List[str]:
                 "Native product core failed under ASan/UBSan. Read native_sim/results/last_report.json; "
                 "re-run: python native_sim/run_product_core_tests.py"
             )
+        elif L.id == "qwen_evidence":
+            hints.append(
+                "QWEN evidence profile failed. Read results/qwen_gate_last.json; "
+                "this is existing QWEN pytest evidence, not product HIL."
+            )
+        elif L.id == "scenario_schema":
+            hints.append(
+                "Product scenario JSON invalid. Read native_sim/results/protocol_scenario_schema.json; "
+                "re-run: python native_sim/validate_protocol_scenarios.py"
+            )
+        elif L.id == "protocol_scenarios":
+            hints.append(
+                "Product protocol scenario failed. Read native_sim/results/protocol_scenarios.json "
+                "for field mismatches and minimal_failure; re-run: python native_sim/run_protocol_scenarios.py"
+            )
         elif L.id == "case_schema":
             hints.append(
                 "protocol JSON case structure invalid — fix cases under "
@@ -333,9 +348,9 @@ def agent_hints_for_failures(layers: List[Layer]) -> List[str]:
             high = soft.get("high_divergence") or []
             if high:
                 hints.append(
-                    "Soft product-sample divergence (not hard fail): "
+                    "Product-sample divergence is allowlisted pending HIL/product-contract review: "
                     + ", ".join(high)
-                    + " — see protocol_sim/results/soft_divergence.json"
+                    + " — see protocol_sim/results/soft_allowlist_last.json"
                 )
             elif int(soft.get("total_err_lines") or 0) > 0:
                 hints.append(
@@ -466,7 +481,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         )
     )
 
-    # always: quick units for sim_common (cheap)
+    code, dur = _run(
+        [sys.executable, str(FZ_ROOT / "native_sim" / "validate_protocol_scenarios.py")]
+    )
+    layers.append(
+        Layer(
+            id="scenario_schema",
+            name="product_protocol_scenario_schema",
+            status="pass" if code == 0 else "fail",
+            exit_code=code,
+            duration_s=dur,
+            log_hint="native_sim/results/protocol_scenario_schema.json",
+            detail="scenario structure and expectation whitelist",
+        )
+    )
+    # always: quick units for shared helpers and native coverage policy (cheap)
     code, dur = _run(
         [sys.executable, "-m", "unittest", "discover", "-s", "sim_common", "-p", "test_*.py", "-q"]
     )
@@ -480,9 +509,114 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             log_hint="python -m unittest discover -s sim_common -q",
         )
     )
+    code, dur = _run(
+        [sys.executable, "-m", "unittest", "discover", "-s", "native_sim", "-p", "test_*.py", "-q"]
+    )
+    layers.append(
+        Layer(
+            id="native_units",
+            name="native_sim_unittest",
+            status="pass" if code == 0 else "fail",
+            exit_code=code,
+            duration_s=dur,
+            log_hint="python -m unittest discover -s native_sim -q",
+            detail="coverage policy regression tests",
+        )
+    )
+    code, dur = _run([sys.executable, "-m", "unittest", "scripts.test_agent_api", "-q"])
+    layers.append(
+        Layer(
+            id="agent_api_units",
+            name="agent_api_unittest",
+            status="pass" if code == 0 else "fail",
+            exit_code=code,
+            duration_s=dur,
+            log_hint="python -m unittest scripts.test_agent_api -q",
+            detail="MCP-ready transport-neutral API contract",
+        )
+    )
 
+    code, dur = _run([sys.executable, "-m", "unittest", "scripts.test_agent_observe", "-q"])
+    layers.append(
+        Layer(
+            id="agent_observe_units",
+            name="agent_observe_unittest",
+            status="pass" if code == 0 else "fail",
+            exit_code=code,
+            duration_s=dur,
+            log_hint="python -m unittest scripts.test_agent_observe -q",
+            detail="allowlisted divergence severity and observability contract",
+        )
+    )
+
+    qwen_adapter = FZ_ROOT / "scripts" / "qwen_evidence_adapter.py"
+    qwen_root = Path(os.environ.get("QWEN_ROOT", "D:/QWEN3.0"))
+    if qwen_adapter.is_file() and (qwen_root / "AGENTS.md").is_file():
+        code, dur = _run(
+            [
+                sys.executable,
+                str(qwen_adapter),
+                "--profile",
+                "standard",
+                "--qwen-root",
+                str(qwen_root),
+                "--timeout",
+                "600",
+            ]
+        )
+        layers.append(
+            Layer(
+                id="qwen_evidence",
+                name="qwen_existing_pytest_evidence",
+                status="pass" if code == 0 else "fail",
+                exit_code=code,
+                duration_s=dur,
+                log_hint="results/qwen_gate_last.json",
+                detail="QWEN existing pytest/FakeDevice/drawing contracts; not a replacement for fz or HIL",
+            )
+        )
+    else:
+        layers.append(
+            Layer(
+                id="qwen_evidence",
+                name="qwen_existing_pytest_evidence",
+                status="skip",
+                detail="QWEN_ROOT or QWEN AGENTS.md unavailable",
+            )
+        )
+    scenario_runner = FZ_ROOT / "native_sim" / "run_protocol_scenarios.py"
+    if grbl is not None and scenario_runner.is_file():
+        code, dur = _run(
+            [
+                sys.executable,
+                str(scenario_runner),
+                "--grbl-root",
+                str(grbl),
+            ]
+        )
+        layers.append(
+            Layer(
+                id="protocol_scenarios",
+                name="product_protocol_scenarios",
+                status="pass" if code == 0 else "fail",
+                exit_code=code,
+                duration_s=dur,
+                log_hint="native_sim/results/protocol_scenarios.json",
+                detail="stateful product-policy scenarios with minimal failure artifacts",
+            )
+        )
+    else:
+        layers.append(
+            Layer(
+                id="protocol_scenarios",
+                name="product_protocol_scenarios",
+                status="skip",
+                detail="GRBL_ROOT unavailable",
+            )
+        )
     native_runner = FZ_ROOT / "native_sim" / "run_product_core_tests.py"
     native_fuzz_runner = FZ_ROOT / "native_sim" / "run_product_core_fuzz.py"
+    native_model_runner = FZ_ROOT / "native_sim" / "run_product_model_check.py"
     native_coverage_runner = FZ_ROOT / "native_sim" / "run_product_core_coverage.py"
     if grbl is not None and native_runner.is_file():
         code, dur = _run(
@@ -514,6 +648,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
         )
 
+    if grbl is not None and native_model_runner.is_file():
+        code, dur = _run(
+            [sys.executable, str(native_model_runner), "--grbl-root", str(grbl)]
+        )
+        layers.append(
+            Layer(
+                id="native_model",
+                name="native_product_model_check",
+                status="pass" if code == 0 else "fail",
+                exit_code=code,
+                duration_s=dur,
+                log_hint="native_sim/results/product_model_check.json",
+                detail="finite-state exploration and protocol metamorphic invariants",
+            )
+        )
+    else:
+        layers.append(
+            Layer(
+                id="native_model",
+                name="native_product_model_check",
+                status="skip",
+                detail="GRBL_ROOT unavailable",
+            )
+        )
     if grbl is not None and native_fuzz_runner.is_file():
         code, dur = _run(
             [
@@ -866,6 +1024,7 @@ def _finish(
             ),
             "soft_allowlist": "python scripts/soft_allowlist.py",
             "hardware_only": "python hardware_sim/run_hw_sim.py --start-sim",
+            "protocol_scenarios": "python native_sim/run_protocol_scenarios.py",
             "rerun_failed": "python scripts/sim_rerun.py --from-last",
             "list_failures": "python scripts/sim_rerun.py --list",
             "soft_divergence": "protocol_sim/results/soft_divergence.json",
@@ -885,6 +1044,7 @@ def _finish(
             str(FZ_ROOT / "results" / "triage_last.md"),
             str(FZ_ROOT / "protocol_sim" / "results" / "last_report.json"),
             str(FZ_ROOT / "hardware_sim" / "results" / "last_hw_report.json"),
+            str(FZ_ROOT / "native_sim" / "results" / "protocol_scenarios.json"),
         ],
     }
     out = json_out if json_out.is_absolute() else FZ_ROOT / json_out

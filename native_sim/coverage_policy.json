@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "files": {
+    "PaperSystemCore.h": {
+      "lines": 100,
+      "functions": 100,
+      "regions": 80,
+      "branches": 75
+    },
+    "WebUI/BTStateCore.h": {
+      "lines": 95,
+      "functions": 100,
+      "regions": 95,
+      "branches": 90
+    }
+  }
+}

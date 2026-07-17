@@ -37,6 +37,17 @@ class TestAgentObserve(unittest.TestCase):
         self.assertIn("soft_files_with_errors", data["summary"])
         self.assertIn("hardware_cases_in_last_report", data["summary"])
 
+    def test_allowlisted_divergence_helper(self) -> None:
+        import importlib.util
+
+        path = FZ / "scripts" / "agent_observe.py"
+        spec = importlib.util.spec_from_file_location("agent_observe", path)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        self.assertTrue(mod._is_allowlisted("soft:parsetest.nc", {"soft:parsetest.nc"}))
+        self.assertFalse(mod._is_allowlisted("soft:new_unknown.nc", {"soft:parsetest.nc"}))
+
     def test_fail_without_golden_helper(self) -> None:
         import importlib.util
 

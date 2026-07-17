@@ -45,6 +45,7 @@ fz/
 # ★ Agent vibe coding（首选：改完代码主动跑，少烧录）
 $env:GRBL_ROOT='D:\Users\Grbl_Esp32'
 python scripts/agent_gate.py
+'{"operation":"describe"}' | python scripts/agent_api.py  # MCP-ready JSON core
 python native_sim/run_product_core_tests.py  # 真实产品纯核心，不是替代模型
 # R21: integrity+protocol share one sim; --no-shared-sim to disable
 python scripts/agent_loop.py --profile standard    # gate→失败重跑→再 gate

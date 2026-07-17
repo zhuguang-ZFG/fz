@@ -1,0 +1,92 @@
+{
+    "name":  "paper_bt_ack_recovery_sequence",
+    "domain":  "paper_bt_ack",
+    "events":  [
+                   "spp_connected",
+                   "host_ack",
+                   "host_ack",
+                   "poll_busy",
+                   "realtime_command",
+                   "poll_idle",
+                   "spp_disconnected",
+                   "spp_connected",
+                   "host_ack",
+                   "change_failed",
+                   "spp_connected",
+                   "host_ack",
+                   "poll_idle",
+                   "change_completed"
+               ],
+    "expect":  [
+                   {
+                       "armed":  true,
+                       "pending":  false,
+                       "running":  false
+                   },
+                   {
+                       "armed":  false,
+                       "pending":  true,
+                       "running":  false
+                   },
+                   {
+                       "armed":  false,
+                       "pending":  true,
+                       "running":  false
+                   },
+                   {
+                       "armed":  false,
+                       "pending":  true,
+                       "running":  false
+                   },
+                   {
+                       "armed":  false,
+                       "pending":  true,
+                       "running":  false
+                   },
+                   {
+                       "armed":  false,
+                       "pending":  false,
+                       "running":  true
+                   },
+                   {
+                       "armed":  false,
+                       "pending":  false,
+                       "running":  true
+                   },
+                   {
+                       "armed":  false,
+                       "pending":  false,
+                       "running":  true
+                   },
+                   {
+                       "armed":  false,
+                       "pending":  false,
+                       "running":  true
+                   },
+                   {
+                       "armed":  false,
+                       "pending":  false,
+                       "running":  false
+                   },
+                   {
+                       "armed":  true,
+                       "pending":  false,
+                       "running":  false
+                   },
+                   {
+                       "armed":  false,
+                       "pending":  true,
+                       "running":  false
+                   },
+                   {
+                       "armed":  false,
+                       "pending":  false,
+                       "running":  true
+                   },
+                   {
+                       "armed":  false,
+                       "pending":  false,
+                       "running":  false
+                   }
+               ]
+}
