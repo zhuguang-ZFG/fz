@@ -32,6 +32,19 @@ SPEC.loader.exec_module(API)
 
 
 class TestAgentApi(unittest.TestCase):
+    def setUp(self) -> None:
+        # Isolate the execution lock from ambient state: nested handle() calls
+        # (e.g. an MCP/dispatch run_gate running this very suite inside the
+        # gate) already hold results/agent_api.lock, which would make every
+        # lock-taking operation answer "busy" here.
+        self._lock_tmp = tempfile.TemporaryDirectory()
+        self._lock_patch = mock.patch.object(
+            API, "LOCK_PATH", Path(self._lock_tmp.name) / "agent_api.lock"
+        )
+        self._lock_patch.start()
+        self.addCleanup(self._lock_patch.stop)
+        self.addCleanup(self._lock_tmp.cleanup)
+
     def test_console_streams_are_forced_to_utf8(self) -> None:
         stream = mock.Mock()
         with mock.patch.object(API.sys, "stdin", stream), mock.patch.object(
