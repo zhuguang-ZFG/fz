@@ -27,6 +27,9 @@ def _load_agent_api() -> Any:
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot load Agent API: {AGENT_API_PATH}")
     module = importlib.util.module_from_spec(spec)
+    # Register before exec so dataclasses can resolve stringized (PEP 563)
+    # annotations, which look up cls.__module__ in sys.modules at class creation.
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -68,6 +71,42 @@ def _tool_description(name: str) -> str:
     return descriptions.get(name, f"Run fz Agent API operation {name}.")
 
 
+# All exposed tools shell out to a runner that writes results/ (not read-only),
+# but they are deterministic local SIL: a rerun overwrites the same report
+# (idempotent), they neither delete external data nor touch a live/product
+# system (not destructive), and they never reach the network or an open world
+# (allowlisted, closed-world). Read-only introspection (describe/list/read_report)
+# is exposed via MCP resources, not tools. Hosts use these hints to decide
+# auto-approval; every run_* tool shares the same profile.
+_RUN_TOOL_ANNOTATIONS = types.ToolAnnotations(
+    readOnlyHint=False,
+    destructiveHint=False,
+    idempotentHint=True,
+    openWorldHint=False,
+)
+
+
+def _strip_sibling_combinators(node: Any) -> None:
+    """Remove anyOf/oneOf/allOf that sit as siblings of `type`.
+
+    Moonshot (Kimi) rejects schemas where a combinator coexists with a
+    parent-level `type` ("when using anyOf, type should be defined in anyOf
+    items instead of the parent schema"). These combinators only encode
+    constraints the runtime already enforces (e.g. rerun_cases requires at
+    least one of protocol/hardware, checked in agent_api._handle), so dropping
+    them from the advertised schema is safe.
+    """
+    if isinstance(node, dict):
+        if "type" in node:
+            for combinator in ("anyOf", "oneOf", "allOf"):
+                node.pop(combinator, None)
+        for value in node.values():
+            _strip_sibling_combinators(value)
+    elif isinstance(node, list):
+        for item in node:
+            _strip_sibling_combinators(item)
+
+
 def _mcp_tool_schema(name: str) -> Dict[str, Any]:
     schema = json.loads(json.dumps(AGENT_API.OPERATION_SCHEMAS[name]))
     properties = schema.get("properties")
@@ -76,6 +115,7 @@ def _mcp_tool_schema(name: str) -> Dict[str, Any]:
     required = schema.get("required")
     if isinstance(required, list):
         schema["required"] = [item for item in required if item != "grbl_root"]
+    _strip_sibling_combinators(schema)
     return schema
 
 
@@ -96,6 +136,7 @@ def create_server() -> Server:
                 name=name,
                 description=_tool_description(name),
                 inputSchema=_mcp_tool_schema(name),
+                annotations=_RUN_TOOL_ANNOTATIONS,
             )
             for name in TOOL_NAMES
         ]

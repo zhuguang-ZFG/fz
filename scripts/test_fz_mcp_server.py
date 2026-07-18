@@ -88,6 +88,38 @@ class TestFzMcpServer(unittest.IsolatedAsyncioTestCase):
         handle.assert_called_once_with("read_report", {"name": "machine_pin_erc"})
         self.assertEqual(json.loads(result.root.contents[0].text), envelope)
 
+    def test_schemas_have_no_moonshot_invalid_combinators(self) -> None:
+        # Regression guard for the Moonshot 400: a schema node must never carry a
+        # combinator (anyOf/oneOf/allOf) as a sibling of `type`, or Kimi rejects
+        # tools/list and the whole session fails. _mcp_tool_schema must strip these.
+        def offenders(node, path="root"):
+            found = []
+            if isinstance(node, dict):
+                if "type" in node and any(c in node for c in ("anyOf", "oneOf", "allOf")):
+                    found.append(path)
+                for key, value in node.items():
+                    found.extend(offenders(value, f"{path}.{key}"))
+            elif isinstance(node, list):
+                for index, value in enumerate(node):
+                    found.extend(offenders(value, f"{path}[{index}]"))
+            return found
+
+        for name in MCP.TOOL_NAMES:
+            schema = MCP._mcp_tool_schema(name)
+            self.assertEqual(offenders(schema), [], f"{name} advertises a Moonshot-invalid schema")
+
+    async def test_every_run_tool_carries_annotations(self) -> None:
+        tools = await MCP.SERVER.request_handlers[MCP.types.ListToolsRequest](
+            MCP.types.ListToolsRequest(method="tools/list")
+        )
+        for tool in tools.root.tools:
+            annotations = tool.annotations
+            self.assertIsNotNone(annotations, f"{tool.name} is missing annotations")
+            self.assertFalse(annotations.readOnlyHint, f"{tool.name} spawns subprocesses; not read-only")
+            self.assertFalse(annotations.destructiveHint, f"{tool.name} overwrites its own report; not destructive")
+            self.assertTrue(annotations.idempotentHint, f"{tool.name} reruns deterministically; idempotent")
+            self.assertFalse(annotations.openWorldHint, f"{tool.name} is a closed-world local simulation")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,51 @@
+[project]
+name = "fz-sim"
+version = "0.1.0"
+description = "PC SIL simulation harness and release gates for Grbl_Esp32 / Xiaozhi (host evidence, not HIL)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+# Only third-party runtime dependency: the MCP SDK used by scripts/fz_mcp_server.py.
+# Everything else in the repo is stdlib or local modules. Exact versions are
+# pinned in uv.lock for reproducible simulation gates.
+dependencies = [
+    "mcp>=1.28,<2",
+]
+
+[dependency-groups]
+# Dev-only tooling. Tests are written with unittest but run under pytest too,
+# giving one entry point + coverage across every test_*.py in the repo.
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff>=0.6",
+]
+
+[tool.ruff]
+# The codebase favours dense, single-line dict/command literals; keep a wide
+# line budget rather than reflowing existing, tested code.
+line-length = 160
+target-version = "py310"
+
+[tool.ruff.lint]
+# Default (pyflakes F + pycodestyle E) plus import hygiene and pyupgrade.
+select = ["E", "F", "I", "UP"]
+ignore = [
+    "E501",   # line length handled by formatter budget above, not enforced
+    "UP038",  # isinstance tuple form is intentional for py310 clarity
+]
+
+[tool.pytest.ini_options]
+# Every simulation module keeps its tests beside the code as test_*.py.
+testpaths = [
+    "scripts",
+    "sim_common",
+    "native_sim",
+    "chip_sim",
+    "hardware_sim",
+    "protocol_sim",
+    "hil",
+    "xiaozhi_sim",
+]
+python_files = ["test_*.py"]
+addopts = "-q"
