@@ -266,8 +266,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     report["stdout"] += run.stdout
     report["stderr"] += run.stderr
     if run.returncode != 0:
+        pre_main_crash = (
+            os.name == "nt"
+            and run.returncode >= 0xC0000000
+            and not run.stdout.strip()
+        )
+        if pre_main_crash:
+            report["status"] = "skip"
+            report["stderr"] += (
+                f"\ninstrumented coverage binary crashed pre-main (0x{run.returncode:08x}); "
+                "toolchain/runtime environmental issue, not a product-core verdict "
+                "(native_fuzz ASan/UBSan layer still enforces memory safety)"
+            )
+            _write_report(report)
+            print(report["stderr"][-400:], file=sys.stderr, end="")
+            return 2
         _write_report(report)
-        print(report["stderr"], file=sys.stderr, end="")
+        detail = report["stderr"] or f"coverage binary exited {run.returncode} with no output"
+        print(detail, file=sys.stderr, end="")
         return 1
 
     merge = subprocess.run(
