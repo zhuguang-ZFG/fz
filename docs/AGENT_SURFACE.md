@@ -51,6 +51,7 @@ Agent **没有**被赋予「数字孪生整机」或「大厂云仿真 API」；
 | `results/triage_last.md` | 每次 | 失败用例 send/got 摘要 |
 | `results/agent_gate_last.json` | 每次 | 层 pass/fail、hints |
 | `results/agent_api_runs/*.log` | MCP/API `run_*` 调用 | 子进程完整 stdout/stderr tee；超时/挂死排查首看 |
+| `results/qemu/qemu_smoke_report.json` | gate `qemu_startup` 层或手动冒烟 | 真实二进制启动 oracle + UART 协议冒烟；experimental chip SIL，panic 豁免见报告 |
 | stdout `AGENT_OBSERVE` | 每次 | 不打开文件也能看到 soft/next |
 | stdout `FAIL SLICES` | **仅红** | 立刻看到坏 case |
 

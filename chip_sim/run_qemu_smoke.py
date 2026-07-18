@@ -3,12 +3,16 @@
 """
 Optional Espressif QEMU smoke: run flash image, capture serial for a few seconds.
 
+Interactive UART smoke: sends \\r\\n, $I, $$ and checks for Grbl protocol responses.
+Startup log oracle: classifies boot/fatal patterns.
+
 Official package must be started so ROM is found under share/qemu/ (run from
 package root = parent of bin/). Do not pass raw rom.bin as -bios (not ELF).
 
 Exit codes:
   0  ROM/bootloader path produced boot markers (even if app panics)
-  1  QEMU ran but no boot markers
+  1  startup oracle fails without panic exemption (silent restart loop /
+     ready timeout / no boot markers), or QEMU ran with a host error
   2  missing qemu or flash image
   3  QEMU process error
 
@@ -20,13 +24,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import queue
 import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional
+
+from startup_log_oracle import analyze_startup_log
 
 
 FZ_ROOT = Path(__file__).resolve().parent.parent
@@ -41,7 +49,6 @@ def find_qemu() -> Optional[Path]:
     w = shutil.which("qemu-system-xtensa")
     if w:
         return Path(w)
-    # Prefer full package tree (share/qemu ROM) over bare bin/ copy
     for p in (
         VENDOR_QEMU / "extract" / "qemu" / "bin" / "qemu-system-xtensa.exe",
         VENDOR_QEMU / "qemu" / "bin" / "qemu-system-xtensa.exe",
@@ -50,7 +57,6 @@ def find_qemu() -> Optional[Path]:
         if p.is_file():
             return p
     if VENDOR_QEMU.is_dir():
-        # Prefer any path that has sibling ../share/qemu
         found: List[Path] = list(VENDOR_QEMU.rglob("qemu-system-xtensa.exe"))
         found += list(VENDOR_QEMU.rglob("qemu-system-xtensa"))
         for p in found:
@@ -63,18 +69,27 @@ def find_qemu() -> Optional[Path]:
 
 def package_root_for(qemu: Path) -> Path:
     """Directory that contains bin/ and share/qemu/ for Espressif builds."""
-    # .../qemu/bin/qemu-system-xtensa.exe → .../qemu
     parent = qemu.parent
     if (parent.parent / "share" / "qemu").is_dir():
         return parent.parent
     if (parent / "share" / "qemu").is_dir():
         return parent
-    # vendored: vendor/espressif_qemu/{bin,share}
     if (VENDOR_QEMU / "share" / "qemu").is_dir() and qemu.is_relative_to(VENDOR_QEMU):
         return VENDOR_QEMU
     if (VENDOR_QEMU / "extract" / "qemu" / "share" / "qemu").is_dir():
         return VENDOR_QEMU / "extract" / "qemu"
     return parent
+
+
+def _reader_pump(stream: Any, sink: queue.Queue[Optional[str]]) -> None:
+    """Copy *stream* lines into *sink* forever; put None on EOF (daemon thread)."""
+    try:
+        for line in iter(stream.readline, ""):
+            sink.put(line)
+    except (OSError, ValueError):
+        pass
+    finally:
+        sink.put(None)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -103,6 +118,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="exit 0 even if no UART",
     )
     ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument(
+        "--interactive",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="send \\r\\n, $I, $$ to probe Grbl protocol (default True)",
+    )
+    ap.add_argument(
+        "--ready-marker",
+        action="append",
+        default=[],
+        dest="ready_markers",
+        help="ready marker for startup oracle (repeatable, default Grbl)",
+    )
     args = ap.parse_args(argv)
 
     qemu = find_qemu()
@@ -133,7 +161,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         log_path = FZ_ROOT / log_path
 
     pkg = package_root_for(qemu)
-    # Prefer exe under pkg/bin when present (same package as share/)
     pkg_exe = pkg / "bin" / qemu.name
     if pkg_exe.is_file():
         qemu = pkg_exe
@@ -155,6 +182,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         proc = subprocess.Popen(
             cmd,
             cwd=str(pkg),
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -167,22 +195,42 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     chunks: List[str] = []
     deadline = time.time() + args.timeout
+    interactive_sent: List[str] = []
+    out_queue: queue.Queue[Optional[str]] = queue.Queue()
+    assert proc.stdout is not None
+    reader = threading.Thread(target=_reader_pump, args=(proc.stdout, out_queue), daemon=True)
+    reader.start()
+    pending_sends = ["\r\n", "$I\n", "$$\n"] if args.interactive else []
+    next_send_at = time.time() + 2.0
+
     try:
-        assert proc.stdout is not None
-        while time.time() < deadline:
-            line = proc.stdout.readline()
-            if line:
-                chunks.append(line)
-                sys.stdout.write(line)
-                sys.stdout.flush()
-            elif proc.poll() is not None:
-                rest = proc.stdout.read() or ""
-                if rest:
-                    chunks.append(rest)
-                    sys.stdout.write(rest)
+        while True:
+            if time.time() >= deadline:
                 break
-            else:
-                time.sleep(0.05)
+            if pending_sends and time.time() >= next_send_at and proc.poll() is None:
+                data = pending_sends.pop(0)
+                interactive_sent.append(data.strip())
+                try:
+                    if proc.stdin is not None:
+                        proc.stdin.write(data)
+                        proc.stdin.flush()
+                except (OSError, ValueError):
+                    pass
+                next_send_at = time.time() + 1.0
+                continue
+            try:
+                item = out_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            if item is None:
+                break  # output stream ended; no more output is possible
+            chunks.append(item)
+            sys.stdout.write(item)
+            sys.stdout.flush()
+            if pending_sends and re.search(r"Grbl|\[MSG:", item, re.I):
+                # Grbl banner sighting: probe immediately instead of waiting
+                # for the fixed 2s schedule (matters on panic-looping images).
+                next_send_at = min(next_send_at, time.time())
     finally:
         if proc.poll() is None:
             proc.terminate()
@@ -190,11 +238,16 @@ def main(argv: Optional[List[str]] = None) -> int:
                 proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 proc.kill()
+        if proc.stdin:
+            try:
+                proc.stdin.close()
+            except OSError:
+                pass
 
     text = "".join(chunks)
     log_path.write_text(text, encoding="utf-8")
 
-    # Ignore QEMU host stderr-style lines for pattern scoring
+    # Pattern scoring
     boot_markers = [
         r"rst:0x",
         r"boot:0x",
@@ -222,7 +275,6 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     rom_boot_ok = bool(boot_hits)
     app_ok = bool(app_hits)
-    # Host-side QEMU failures (not guest "Guru Meditation Error")
     qemu_host_error = bool(
         re.search(
             r"could not load ELF|ROM code binary not found|Error: -bios argument",
@@ -230,6 +282,65 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
     )
 
+    # Protocol smoke: count Grbl protocol responses. "ok" is matched loosely
+    # (\bok\b); only used as responded=any(>0), not as an exact reply count.
+    protocol_hits = {
+        "[VER:": len(re.findall(r"\[VER:", text)),
+        "[PARAM": len(re.findall(r"\[PARAM", text)),
+        "ok": len(re.findall(r"\bok\b", text)),
+    }
+    protocol_responded = any(v > 0 for v in protocol_hits.values())
+
+    # Startup oracle
+    ready_markers = args.ready_markers or ["Grbl"]
+    oracle_verdict = analyze_startup_log(text, ready_markers=ready_markers, max_boots=2)
+
+    # ---------- exit code (honesty first) ----------
+    exit_code: int = 0
+    if qemu_host_error and not rom_boot_ok:
+        print("FAIL: QEMU host error without guest boot")
+        exit_code = 1
+    elif not text.strip():
+        if args.allow_empty:
+            print("WARN: empty UART but --allow-empty")
+        else:
+            print("FAIL: no UART output")
+            exit_code = 1
+    elif args.require_app and not app_ok:
+        print("FAIL: --require-app but no Grbl/app banner")
+        exit_code = 1
+    elif args.expect and not extra_hits:
+        print("FAIL: expected patterns not found:", args.expect)
+        exit_code = 1
+    elif not rom_boot_ok:
+        print("FAIL: no ROM/bootloader markers (check cwd/share ROM + flash image)")
+        exit_code = 1
+    elif oracle_verdict["status"] == "fail":
+        fatal_kinds = {e["kind"] for e in oracle_verdict.get("fatal_events", [])}
+        panic_kinds = {"guru_meditation", "panic"}
+        # Exemption applies only when every fatal is panic-family (or the
+        # restart/ready markers a panic-loop produces): brownout, watchdog,
+        # radio/filesystem/task failures are real anomalies and must fail.
+        exemptable = panic_kinds | {"restart_loop", "ready_timeout"}
+        has_panic = bool(fatal_kinds & panic_kinds)
+        if has_panic and fatal_kinds <= exemptable:
+            print(
+                "PASS (experimental): ROM boot ok, startup oracle reports "
+                "fail with panic exemption — expected for Arduino product image"
+            )
+            exit_code = 0
+        else:
+            print(f"FAIL: startup oracle fatal events: {sorted(fatal_kinds)}")
+            exit_code = 1
+    else:
+        # Oracle pass
+        if protocol_responded:
+            print("PASS: boot + protocol response:", protocol_hits)
+        else:
+            print("PASS (experimental): boot ok, no protocol response")
+        exit_code = 0
+
+    # ---------- report ----------
     report = {
         "suite": "qemu_smoke",
         "fidelity": "experimental_chip_sil_not_product_gate",
@@ -246,6 +357,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         "app_hits": app_hits,
         "extra_hits": extra_hits,
         "qemu_host_error": qemu_host_error,
+        "interactive_sent": interactive_sent,
+        "protocol_smoke": {
+            "sent": interactive_sent,
+            "hits": protocol_hits,
+            "responded": protocol_responded,
+        },
+        "startup_oracle": oracle_verdict,
         "log": str(log_path),
         "interpretation": (
             "ROM+2nd-stage bootloader reached; app may panic under QEMU "
@@ -269,35 +387,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     rep_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2))
 
-    if qemu_host_error and not rom_boot_ok:
-        print("FAIL: QEMU host error without guest boot")
-        return 1
-    if not text.strip():
-        if args.allow_empty:
-            print("WARN: empty UART but --allow-empty")
-            return 0
-        print("FAIL: no UART output")
-        return 1
-    if args.require_app and not app_ok:
-        print("FAIL: --require-app but no Grbl/app banner")
-        return 1
-    if args.expect and not extra_hits:
-        print("FAIL: expected patterns not found:", args.expect)
-        return 1
-    if not rom_boot_ok:
-        print("FAIL: no ROM/bootloader markers (check cwd/share ROM + flash image)")
-        return 1
-
-    if panic_hits and not app_ok:
-        print(
-            "PASS (experimental): chip ROM+bootloader path works; "
-            "app panicked under QEMU (expected for this Arduino product image)"
-        )
-    elif app_ok:
-        print("PASS: boot + app banner seen:", app_hits)
-    else:
-        print("PASS: boot markers:", boot_hits)
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":

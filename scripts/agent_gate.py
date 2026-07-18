@@ -69,10 +69,14 @@ class Layer:
     log_hint: str = ""
 
 
-def _run(cmd: List[str], cwd: Optional[Path] = None) -> tuple[int, float]:
+def _run(cmd: List[str], cwd: Optional[Path] = None, timeout_s: Optional[float] = None) -> tuple[int, float]:
     print("AGENT_GATE_RUN:", " ".join(cmd), flush=True)
     t0 = time.time()
-    proc = subprocess.run(cmd, cwd=str(cwd or FZ_ROOT), env=os.environ.copy())
+    try:
+        proc = subprocess.run(cmd, cwd=str(cwd or FZ_ROOT), env=os.environ.copy(), timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        print(f"AGENT_GATE_TIMEOUT: exceeded {timeout_s}s", flush=True)
+        return 124, round(time.time() - t0, 2)
     return proc.returncode, round(time.time() - t0, 2)
 
 
@@ -444,6 +448,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     # preflight sim binary
     sys.path.insert(0, str(FZ_ROOT))
+    sys.path.insert(0, str(FZ_ROOT / "chip_sim"))
     try:
         from sim_common.find_sim import find_sim
     except ImportError:
@@ -722,6 +727,57 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         layers.append(Layer(id="wokwi_startup", name="wokwi_cloud_esp32_startup", status="pass" if code == 0 else "fail", exit_code=code, duration_s=dur, log_hint="results/wokwi/wokwi_smoke_report.json", detail="optional cloud startup: ready marker required; panic/watchdog/restart/init failures rejected"))
     else:
         layers.append(Layer(id="wokwi_startup", name="wokwi_cloud_esp32_startup", status="skip", detail="WOKWI_CLI_TOKEN or firmware unavailable; cloud initialization not claimed"))
+    # --- qemu_startup layer (mirrors wokwi pattern) ---
+    _qemu_path: Optional[Path] = None
+    try:
+        from run_qemu_smoke import find_qemu as _find_qemu  # type: ignore[import-untyped]
+
+        _qemu_path = _find_qemu()  # type: ignore[no-untyped-call]
+    except ImportError:
+        _qemu_path = None
+    if _qemu_path and grbl is not None:
+        _flash_image = RESULTS / "qemu" / "flash_image_4mb.bin"
+        _need_build = not _flash_image.is_file()
+        if not _need_build:
+            _firmware = grbl / ".pio" / "build" / "release" / "firmware.bin"
+            if _firmware.is_file():
+                _need_build = _firmware.stat().st_mtime > _flash_image.stat().st_mtime
+        if _need_build:
+            _code, _dur = _run(
+                [sys.executable, str(FZ_ROOT / "chip_sim" / "build_flash_image.py"), "--grbl-root", str(grbl)]
+            )
+            if _code != 0:
+                print("AGENT_GATE: flash image build failed; qemu_startup skip", flush=True)
+                _qemu_path = None
+        if _qemu_path and _flash_image.is_file():
+            _code, _dur = _run(
+                [sys.executable, str(FZ_ROOT / "chip_sim" / "run_qemu_smoke.py"), "--timeout", "20"],
+                timeout_s=90,
+            )
+            layers.append(Layer(
+                id="qemu_startup",
+                name="espressif_qemu_esp32_startup_uart",
+                status="pass" if _code == 0 else "fail",
+                exit_code=_code,
+                duration_s=_dur,
+                log_hint="results/qemu/qemu_smoke_report.json",
+                detail="experimental chip SIL; UART interactive + startup oracle ≠ product gate",
+            ))
+        else:
+            layers.append(Layer(
+                id="qemu_startup",
+                name="espressif_qemu_esp32_startup_uart",
+                status="skip",
+                detail="qemu or firmware unavailable; chip SIL startup not claimed",
+            ))
+    else:
+        layers.append(Layer(
+            id="qemu_startup",
+            name="espressif_qemu_esp32_startup_uart",
+            status="skip",
+            detail="qemu or firmware unavailable; chip SIL startup not claimed",
+        ))
+    # --- end qemu_startup ---
     if grbl is not None and paper_contract_runner.is_file():
         code, dur = _run([sys.executable, str(paper_contract_runner), "--grbl-root", str(grbl)])
         layers.append(
