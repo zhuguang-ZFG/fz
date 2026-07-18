@@ -41,8 +41,16 @@ class TestFzMcpStdio(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("fz://report/machine_pin_erc", resource_uris)
                 report = await session.read_resource("fz://report/machine_pin_erc")
                 envelope = json.loads(report.contents[0].text)
-                self.assertTrue(envelope["ok"])
                 self.assertEqual(envelope["operation"], "read_report")
+                if envelope["ok"]:
+                    self.assertIn("content", envelope["result"])
+                else:
+                    # Fresh checkout (CI): report artifacts do not exist yet;
+                    # the fail-closed contract must answer report_not_found.
+                    self.assertEqual(envelope["error"]["code"], "report_not_found")
+                describe = await session.read_resource("fz://describe")
+                describe_envelope = json.loads(describe.contents[0].text)
+                self.assertTrue(describe_envelope["ok"])
 
 
 if __name__ == "__main__":
