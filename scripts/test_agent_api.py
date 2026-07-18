@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import importlib.util
 import hashlib
+import io
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -14,6 +16,10 @@ FZ_ROOT = Path(__file__).resolve().parent.parent
 SPEC = importlib.util.spec_from_file_location("agent_api", FZ_ROOT / "scripts" / "agent_api.py")
 assert SPEC and SPEC.loader
 API = importlib.util.module_from_spec(SPEC)
+# Register before exec so dataclasses can resolve stringized (PEP 563) annotations,
+# which look up cls.__module__ in sys.modules during @dataclass processing.
+import sys as _sys
+_sys.modules[SPEC.name] = API
 SPEC.loader.exec_module(API)
 
 
@@ -361,5 +367,88 @@ class TestAgentApi(unittest.TestCase):
         self.assertIn("D:\\QWEN3.0", command)
         self.assertEqual(command[-2:], ["--json-out", str(request_report)])
         self.assertEqual(timeout, 10.0)
+class TestAgentApiRun(unittest.TestCase):
+    def test_run_substitutes_base_executable_and_devnull_stdin(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fake_base = Path(directory) / "base-python.exe"
+            fake_base.write_bytes(b"")
+            with mock.patch.object(API.sys, "_base_executable", str(fake_base), create=True), mock.patch.dict(
+                API.os.environ, {"FZ_AGENT_API_BASE_EXECUTABLE": "1"}
+            ), mock.patch.object(API.subprocess, "Popen") as popen:
+                proc = popen.return_value
+                proc.stdout = io.StringIO("out-line\n")
+                proc.stderr = io.StringIO("err-line\n")
+                proc.wait.return_value = None
+                proc.returncode = 0
+                result = API._run([API.sys.executable, "-c", "pass"], 5.0)
+        command = popen.call_args.args[0]
+        self.assertEqual(command[0], str(fake_base))
+        self.assertEqual(command[1:], ["-c", "pass"])
+        self.assertIs(popen.call_args.kwargs.get("stdin"), API.subprocess.DEVNULL)
+        self.assertEqual(result["exit_code"], 0)
+        self.assertIn("out-line", result["stdout_tail"])
+        self.assertIn("err-line", result["stderr_tail"])
+
+    def test_run_no_substitution_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fake_base = Path(directory) / "base-python.exe"
+            fake_base.write_bytes(b"")
+            with mock.patch.object(API.sys, "_base_executable", str(fake_base), create=True), mock.patch.dict(
+                API.os.environ, {}, clear=False
+            ), mock.patch.object(API.subprocess, "Popen") as popen:
+                API.os.environ.pop("FZ_AGENT_API_BASE_EXECUTABLE", None)
+                proc = popen.return_value
+                proc.stdout = io.StringIO("")
+                proc.stderr = io.StringIO("")
+                proc.wait.return_value = None
+                proc.returncode = 0
+                API._run([API.sys.executable, "-c", "pass"], 5.0)
+        self.assertEqual(popen.call_args.args[0][0], API.sys.executable)
+
+    def test_run_keeps_explicit_interpreter(self) -> None:
+        with mock.patch.object(API.sys, "_base_executable", r"D:\base\python.exe", create=True), mock.patch.object(
+            API.subprocess, "Popen"
+        ) as popen:
+            proc = popen.return_value
+            proc.stdout = io.StringIO("")
+            proc.stderr = io.StringIO("")
+            proc.wait.return_value = None
+            proc.returncode = 0
+            API._run([r"D:\explicit\python.exe", "runner.py"], 5.0)
+        self.assertEqual(popen.call_args.args[0][0], r"D:\explicit\python.exe")
+
+    def test_run_timeout_kills_process_tree_fast(self) -> None:
+        t0 = time.monotonic()
+        with self.assertRaises(API.ApiError) as ctx:
+            API._run(
+                [API.sys.executable, "-c", "import time; print('mark', flush=True); time.sleep(60)"],
+                1.0,
+            )
+        elapsed = time.monotonic() - t0
+        self.assertLess(elapsed, 30.0)
+        self.assertEqual(ctx.exception.code, "timeout")
+        self.assertIn("mark", ctx.exception.details["stdout_tail"])
+
+    def test_run_tee_writes_log_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "run.log"
+            result = API._run([API.sys.executable, "-c", "print('hello-tee')"], 10.0, log_path=log)
+            self.assertEqual(result["exit_code"], 0)
+            self.assertIn("hello-tee", log.read_text(encoding="utf-8"))
+            self.assertIn("hello-tee", result["stdout_tail"])
+
+    def test_run_timeout_details_carry_log_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "run.log"
+            with self.assertRaises(API.ApiError) as ctx:
+                API._run(
+                    [API.sys.executable, "-c", "import time; print('pre', flush=True); time.sleep(60)"],
+                    1.0,
+                    log_path=log,
+                )
+            self.assertEqual(ctx.exception.details.get("log_path"), str(log))
+            self.assertIn("pre", log.read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()

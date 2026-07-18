@@ -50,6 +50,7 @@ Agent **没有**被赋予「数字孪生整机」或「大厂云仿真 API」；
 | `results/agent_observe_last.json` | 同上 | 机读；`agent_should_block_done_claim` |
 | `results/triage_last.md` | 每次 | 失败用例 send/got 摘要 |
 | `results/agent_gate_last.json` | 每次 | 层 pass/fail、hints |
+| `results/agent_api_runs/*.log` | MCP/API `run_*` 调用 | 子进程完整 stdout/stderr tee；超时/挂死排查首看 |
 | stdout `AGENT_OBSERVE` | 每次 | 不打开文件也能看到 soft/next |
 | stdout `FAIL SLICES` | **仅红** | 立刻看到坏 case |
 
@@ -74,6 +75,8 @@ python scripts/agent_gate.py --profile quick    # 或 standard
 # → 按 next_actions：sim_rerun / standard / honesty
 python scripts/agent_loop.py --profile standard # 自动 gate→observe→rerun
 ```
+
+**运维坑（2026-07-18）**：火绒类 EDR 按进程代注入，可能冻结 MCP server 派生的孙子进程（0 CPU、解释器未初始化、零输出的假超时）。`agent_api._run` 已硬化：`stdin=DEVNULL` + 子进程输出 tee 到 `results/agent_api_runs/*.log` + 超时杀进程树（taskkill /T，不再残留孤儿 grblHAL_sim）；另有逃逸开关 `FZ_AGENT_API_BASE_EXECUTABLE=1`（跳 venv shim 直连 base 解释器，注意会丢 venv site-packages，run_gate 的 mcp_stdio 层需要，默认关）。若 MCP `run_*` 仍零输出超时，把 python.exe / kimi.exe 加入火绒信任区，或临时关闭「系统加固 → 程序执行控制」。
 
 ---
 

@@ -10,12 +10,14 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Sequence
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence
 
 
 FZ_ROOT = Path(__file__).resolve().parent.parent
@@ -364,34 +366,251 @@ def _execution_lock(request_id: str, operation: str) -> Iterator[None]:
             pass
 
 
-def _run(command: List[str], timeout_s: float) -> Dict[str, Any]:
-    started = time.monotonic()
+def _python_executable() -> str:
+    """Return sys.executable, or the base interpreter when explicitly opted in.
+
+    The venv launcher re-execs the base interpreter, adding a process
+    generation. Under hosts that hook every spawned process generation (some
+    endpoint-protection products) that extra hop may matter, so
+    FZ_AGENT_API_BASE_EXECUTABLE=1 skips the shim. Default off: the base
+    interpreter loses venv site-packages (e.g. the mcp SDK used by the
+    mcp_stdio gate layer), and the shim skip is not a proven fix.
+    """
+    base = getattr(sys, "_base_executable", None)
+    if (
+        os.environ.get("FZ_AGENT_API_BASE_EXECUTABLE") == "1"
+        and base
+        and base != sys.executable
+        and Path(base).is_file()
+    ):
+        return str(base)
+    return sys.executable
+
+
+def _with_base_executable(command: List[str]) -> List[str]:
+    if command and command[0] == sys.executable:
+        return [_python_executable(), *command[1:]]
+    return list(command)
+
+
+def _pump_stream(stream: Any, sink: Any, chunks: List[str]) -> None:
     try:
-        result = subprocess.run(
-            command,
-            cwd=str(FZ_ROOT),
-            env=os.environ.copy(),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout_s,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise ApiError(
-            "timeout",
-            f"operation exceeded {timeout_s}s",
-            {"stdout_tail": (exc.stdout or "")[-4000:], "stderr_tail": (exc.stderr or "")[-4000:]},
-        ) from exc
+        for chunk in iter(stream.readline, ""):
+            chunks.append(chunk)
+            if sink is not None:
+                sink.write(chunk)
+                sink.flush()
+    except (OSError, ValueError):
+        pass
+    finally:
+        try:
+            stream.close()
+        except OSError:
+            pass
+
+
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+                timeout=15,
+            )
+            return
+        except (OSError, subprocess.SubprocessError):
+            pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def _run(command: List[str], timeout_s: float, log_path: Optional[Path] = None) -> Dict[str, Any]:
+    started = time.monotonic()
+    log_stream = None
+    if log_path is not None:
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        log_stream = open(log_path, "w", encoding="utf-8", errors="replace")
+    proc = subprocess.Popen(
+        _with_base_executable(command),
+        cwd=str(FZ_ROOT),
+        env=os.environ.copy(),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    out_chunks: List[str] = []
+    err_chunks: List[str] = []
+    threads = [
+        threading.Thread(target=_pump_stream, args=(proc.stdout, log_stream, out_chunks), daemon=True),
+        threading.Thread(target=_pump_stream, args=(proc.stderr, log_stream, err_chunks), daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+    timed_out = False
+    try:
+        proc.wait(timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        _kill_process_tree(proc)
+        try:
+            proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            pass
+    for thread in threads:
+        thread.join(timeout=15)
+    if log_stream is not None:
+        log_stream.close()
+    duration = round(time.monotonic() - started, 2)
+    stdout_tail = "".join(out_chunks)[-8000:]
+    stderr_tail = "".join(err_chunks)[-8000:]
+    if timed_out:
+        details: Dict[str, Any] = {"stdout_tail": stdout_tail[-4000:], "stderr_tail": stderr_tail[-4000:]}
+        if log_path is not None:
+            details["log_path"] = str(log_path)
+        raise ApiError("timeout", f"operation exceeded {timeout_s}s", details)
     return {
-        "exit_code": result.returncode,
-        "duration_s": round(time.monotonic() - started, 2),
-        "stdout_tail": result.stdout[-8000:],
-        "stderr_tail": result.stderr[-8000:],
+        "exit_code": proc.returncode,
+        "duration_s": duration,
+        "stdout_tail": stdout_tail,
+        "stderr_tail": stderr_tail,
     }
 
 
 QWEN_PROFILES = ("firmware_contract", "motion_contract", "drawing_e2e", "voice_contract", "standard")
+
+PAPER_PLANT_PROFILES = [
+    "nominal",
+    "slip_40pct",
+    "jam",
+    "no_paper",
+    "sensor_stuck_inactive",
+    "sensor_stuck_active",
+    "sensor_bounce",
+    "motor_reverse",
+    "slip_plus_bounce",
+    "slip_plus_jam",
+]
+
+
+@dataclass(frozen=True)
+class _SubprocessOp:
+    """Declarative spec for a simulation op that shells out to a runner script.
+
+    The generic executor (_run_subprocess_op) turns one of these into the exact
+    command/lock/report sequence every run_* branch used to hand-roll. Adding a
+    new gate is now one registry entry instead of a copy-pasted 25-line branch.
+    """
+
+    script: Path
+    default_timeout: float
+    report_key: Optional[str] = None            # fixed REPORTS[...] key; None => request-scoped
+    report_suffix: str = ""                     # request-scoped filename suffix, e.g. "-contract"
+    report_dir: str = "paper_plant_requests"    # subdir under RESULTS for request-scoped reports
+    prefix_args: Optional[Callable[[Dict[str, Any]], List[str]]] = None  # inserted before --json-out
+    suffix_args: Optional[Callable[[Dict[str, Any]], List[str]]] = None  # appended after --json-out
+
+
+def _resolve_root(param_value: Any, env_var: str, default: str) -> str:
+    return str(Path(str(param_value or os.environ.get(env_var) or default)).resolve())
+
+
+def _gate_profile_args(params: Dict[str, Any]) -> List[str]:
+    profile = params.get("profile", "standard")
+    if profile not in PROFILES:
+        raise ApiError("invalid_request", "unknown gate profile", {"allowed": list(PROFILES)})
+    return ["--profile", str(profile)]
+
+
+def _paper_plant_only_args(params: Dict[str, Any]) -> List[str]:
+    profiles = _validated_names(params.get("profiles"), "profiles", PAPER_PLANT_PROFILES)
+    args: List[str] = []
+    for profile in profiles:
+        args.extend(["--only", profile])
+    return args
+
+
+def _grbl_root_args(params: Dict[str, Any]) -> List[str]:
+    return ["--grbl-root", _resolve_root(params.get("grbl_root"), "GRBL_ROOT", "D:/Users/Grbl_Esp32")]
+
+
+def _qwen_root_args(_params: Dict[str, Any]) -> List[str]:
+    return ["--qwen-root", _resolve_root(None, "QWEN_ROOT", "D:/QWEN3.0")]
+
+
+_SUBPROCESS_OPS: Dict[str, _SubprocessOp] = {
+    "run_gate": _SubprocessOp(
+        script=FZ_ROOT / "scripts" / "agent_gate.py",
+        default_timeout=600,
+        report_key="gate",
+        prefix_args=_gate_profile_args,
+    ),
+    "run_paper_plant": _SubprocessOp(
+        script=FZ_ROOT / "hardware_sim" / "run_paper_plant_campaign.py",
+        default_timeout=120,
+        suffix_args=_paper_plant_only_args,
+    ),
+    "run_paper_interactions": _SubprocessOp(
+        script=FZ_ROOT / "hardware_sim" / "run_paper_plant_interactions.py",
+        default_timeout=120,
+        report_suffix="-interactions",
+    ),
+    "run_paper_contract": _SubprocessOp(
+        script=FZ_ROOT / "hardware_sim" / "run_paper_firmware_contract.py",
+        default_timeout=120,
+        report_suffix="-contract",
+        prefix_args=_grbl_root_args,
+    ),
+    "run_machine_pin_erc": _SubprocessOp(
+        script=FZ_ROOT / "hardware_sim" / "run_machine_pin_erc.py",
+        default_timeout=120,
+        report_suffix="-machine-pin-erc",
+        prefix_args=_grbl_root_args,
+    ),
+    "run_paper_transients": _SubprocessOp(
+        script=FZ_ROOT / "hardware_sim" / "run_paper_transient_campaign.py",
+        default_timeout=120,
+        report_suffix="-transients",
+    ),
+    "run_xiaozhi_protocol": _SubprocessOp(
+        script=FZ_ROOT / "xiaozhi_sim" / "run_protocol_campaign.py",
+        default_timeout=120,
+        report_dir="xiaozhi_requests",
+    ),
+    "run_xiaozhi_contract": _SubprocessOp(
+        script=FZ_ROOT / "xiaozhi_sim" / "run_firmware_contract.py",
+        default_timeout=120,
+        report_suffix="-contract",
+        report_dir="xiaozhi_requests",
+        prefix_args=_qwen_root_args,
+    ),
+}
+
+
+def _run_subprocess_op(operation: str, request_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    spec = _SUBPROCESS_OPS[operation]
+    prefix = spec.prefix_args(params) if spec.prefix_args else []
+    suffix = spec.suffix_args(params) if spec.suffix_args else []
+    timeout_s = _validated_timeout(params.get("timeout_s", spec.default_timeout))
+    command = [sys.executable, str(spec.script), *prefix]
+    request_report: Optional[Path] = None
+    if spec.report_key is None:
+        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
+        request_report = RESULTS / spec.report_dir / f"{report_key}{spec.report_suffix}.json"
+        command.extend(["--json-out", str(request_report)])
+    command.extend(suffix)
+    log_name = re.sub(r"[^A-Za-z0-9_.-]", "_", f"{request_id}-{operation}")
+    log_path = RESULTS / "agent_api_runs" / f"{log_name}.log"
+    with _execution_lock(request_id, operation):
+        execution = _run(command, timeout_s, log_path=log_path)
+    report_path = REPORTS[spec.report_key] if spec.report_key else request_report
+    report = _load_json(report_path)
+    return _envelope(request_id, operation, execution["exit_code"] == 0, execution=execution, result=report)
+
 
 def describe() -> Dict[str, Any]:
     return {
@@ -439,92 +658,8 @@ def dispatch(request: Dict[str, Any]) -> Dict[str, Any]:
             True,
             result={"name": name, "path": path.relative_to(FZ_ROOT).as_posix(), "content": _load_json(path)},
         )
-    if operation == "run_paper_plant":
-        profiles = _validated_names(
-            params.get("profiles"),
-            "profiles",
-            ["nominal", "slip_40pct", "jam", "no_paper", "sensor_stuck_inactive", "sensor_stuck_active", "sensor_bounce", "motor_reverse", "slip_plus_bounce", "slip_plus_jam"],
-        )
-        timeout_s = _validated_timeout(params.get("timeout_s", 120))
-        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
-        request_report = RESULTS / "paper_plant_requests" / f"{report_key}.json"
-        command = [
-            sys.executable,
-            str(FZ_ROOT / "hardware_sim" / "run_paper_plant_campaign.py"),
-            "--json-out",
-            str(request_report),
-        ]
-        for profile in profiles:
-            command.extend(["--only", profile])
-        with _execution_lock(request_id, operation):
-            execution = _run(command, timeout_s)
-        report = _load_json(request_report)
-        return _envelope(request_id, operation, execution["exit_code"] == 0, execution=execution, result=report)
-    if operation == "run_paper_interactions":
-        timeout_s = _validated_timeout(params.get("timeout_s", 120))
-        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
-        request_report = RESULTS / "paper_plant_requests" / f"{report_key}-interactions.json"
-        command = [
-            sys.executable,
-            str(FZ_ROOT / "hardware_sim" / "run_paper_plant_interactions.py"),
-            "--json-out",
-            str(request_report),
-        ]
-        with _execution_lock(request_id, operation):
-            execution = _run(command, timeout_s)
-        report = _load_json(request_report)
-        return _envelope(request_id, operation, execution["exit_code"] == 0, execution=execution, result=report)
-    if operation == "run_paper_contract":
-        timeout_s = _validated_timeout(params.get("timeout_s", 120))
-        grbl_root = Path(str(params.get("grbl_root") or os.environ.get("GRBL_ROOT") or "D:/Users/Grbl_Esp32")).resolve()
-        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
-        request_report = RESULTS / "paper_plant_requests" / f"{report_key}-contract.json"
-        command = [
-            sys.executable,
-            str(FZ_ROOT / "hardware_sim" / "run_paper_firmware_contract.py"),
-            "--grbl-root",
-            str(grbl_root),
-            "--json-out",
-            str(request_report),
-        ]
-        with _execution_lock(request_id, operation):
-            execution = _run(command, timeout_s)
-        report = _load_json(request_report)
-        return _envelope(request_id, operation, execution["exit_code"] == 0, execution=execution, result=report)
-    if operation == "run_machine_pin_erc":
-        timeout_s = _validated_timeout(params.get("timeout_s", 120))
-        grbl_root = Path(str(params.get("grbl_root") or os.environ.get("GRBL_ROOT") or "D:/Users/Grbl_Esp32")).resolve()
-        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
-        request_report = RESULTS / "paper_plant_requests" / f"{report_key}-machine-pin-erc.json"
-        command = [sys.executable, str(FZ_ROOT / "hardware_sim" / "run_machine_pin_erc.py"), "--grbl-root", str(grbl_root), "--json-out", str(request_report)]
-        with _execution_lock(request_id, operation):
-            execution = _run(command, timeout_s)
-        report = _load_json(request_report)
-        return _envelope(request_id, operation, execution["exit_code"] == 0, execution=execution, result=report)
-    if operation == "run_paper_transients":
-        timeout_s = _validated_timeout(params.get("timeout_s", 120))
-        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
-        request_report = RESULTS / "paper_plant_requests" / f"{report_key}-transients.json"
-        command = [
-            sys.executable,
-            str(FZ_ROOT / "hardware_sim" / "run_paper_transient_campaign.py"),
-            "--json-out",
-            str(request_report),
-        ]
-        with _execution_lock(request_id, operation):
-            execution = _run(command, timeout_s)
-        report = _load_json(request_report)
-        return _envelope(request_id, operation, execution["exit_code"] == 0, execution=execution, result=report)
-    if operation == "run_gate":
-        profile = params.get("profile", "standard")
-        if profile not in PROFILES:
-            raise ApiError("invalid_request", "unknown gate profile", {"allowed": list(PROFILES)})
-        timeout_s = _validated_timeout(params.get("timeout_s", 600))
-        command = [sys.executable, str(FZ_ROOT / "scripts" / "agent_gate.py"), "--profile", str(profile)]
-        with _execution_lock(request_id, operation):
-            execution = _run(command, timeout_s)
-        report = _load_json(REPORTS["gate"])
-        return _envelope(request_id, operation, execution["exit_code"] == 0, execution=execution, result=report)
+    if operation in _SUBPROCESS_OPS:
+        return _run_subprocess_op(operation, request_id, params)
     if operation == "run_qwen_gate":
         profile = params.get("profile", "standard")
         if profile not in QWEN_PROFILES:
@@ -546,25 +681,6 @@ def dispatch(request: Dict[str, Any]) -> Dict[str, Any]:
         with _execution_lock(request_id, operation):
             execution = _run(command, timeout_s + 30)
         report = _load_json(REPORTS["qwen_gate"])
-        return _envelope(request_id, operation, execution["exit_code"] == 0, execution=execution, result=report)
-    if operation == "run_xiaozhi_protocol":
-        timeout_s = _validated_timeout(params.get("timeout_s", 120))
-        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
-        request_report = RESULTS / "xiaozhi_requests" / f"{report_key}.json"
-        command = [sys.executable, str(FZ_ROOT / "xiaozhi_sim" / "run_protocol_campaign.py"), "--json-out", str(request_report)]
-        with _execution_lock(request_id, operation):
-            execution = _run(command, timeout_s)
-        report = _load_json(request_report)
-        return _envelope(request_id, operation, execution["exit_code"] == 0, execution=execution, result=report)
-    if operation == "run_xiaozhi_contract":
-        timeout_s = _validated_timeout(params.get("timeout_s", 120))
-        qwen_root = Path(os.environ.get("QWEN_ROOT", "D:/QWEN3.0")).resolve()
-        report_key = hashlib.sha256(request_id.encode("utf-8")).hexdigest()
-        request_report = RESULTS / "xiaozhi_requests" / f"{report_key}-contract.json"
-        command = [sys.executable, str(FZ_ROOT / "xiaozhi_sim" / "run_firmware_contract.py"), "--qwen-root", str(qwen_root), "--json-out", str(request_report)]
-        with _execution_lock(request_id, operation):
-            execution = _run(command, timeout_s)
-        report = _load_json(request_report)
         return _envelope(request_id, operation, execution["exit_code"] == 0, execution=execution, result=report)
     if operation == "run_scenarios":
         available = _protocol_scenarios()
