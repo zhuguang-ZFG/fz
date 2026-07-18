@@ -69,7 +69,7 @@ class Layer:
     log_hint: str = ""
 
 
-def _run(cmd: List[str], cwd: Optional[Path] = None, timeout_s: Optional[float] = None) -> tuple[int, float]:
+def _run(cmd: List[str], cwd: Optional[Path] = None, timeout_s: Optional[float] = 300.0) -> tuple[int, float]:
     print("AGENT_GATE_RUN:", " ".join(cmd), flush=True)
     t0 = time.time()
     try:
@@ -438,6 +438,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     grbl_paths = _git_changed_paths(grbl) if grbl else []
     touch = classify_touch(list(fz_paths) + list(grbl_paths))
     profile = pick_profile(args.profile, grbl, fz_paths, grbl_paths)
+
+    # Automated gate runs disable live subprocess-spawning tests: EDR products
+    # watch spawn/kill chains on this path and can freeze them (opt out with
+    # FZ_AGENT_API_NO_LIVE_SUBPROCESS=0 when running the gate interactively).
+    os.environ.setdefault("FZ_AGENT_API_NO_LIVE_SUBPROCESS", "1")
 
     RESULTS.mkdir(parents=True, exist_ok=True)
     layers: List[Layer] = []
@@ -1168,7 +1173,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if profile in ("deep", "firmware"):
         code, dur = _run(
-            [sys.executable, str(FZ_ROOT / "scripts" / "full_release_smoke.py")]
+            [sys.executable, str(FZ_ROOT / "scripts" / "full_release_smoke.py")],
+            timeout_s=1800,
         )
         layers.append(
             Layer(
@@ -1195,23 +1201,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         env["GRBL_ROOT"] = str(grbl)
         print("AGENT_GATE_RUN: full_release_smoke --with-g0", flush=True)
         t0 = time.time()
-        proc = subprocess.run(
-            [
-                sys.executable,
-                str(FZ_ROOT / "scripts" / "full_release_smoke.py"),
-                "--with-g0",
-                "--g0-mode",
-                "test_drive",
-            ],
-            cwd=str(FZ_ROOT),
-            env=env,
-        )
+        try:
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(FZ_ROOT / "scripts" / "full_release_smoke.py"),
+                    "--with-g0",
+                    "--g0-mode",
+                    "test_drive",
+                ],
+                cwd=str(FZ_ROOT),
+                env=env,
+                timeout=1800,
+            )
+            returncode: Optional[int] = proc.returncode
+        except subprocess.TimeoutExpired:
+            print("AGENT_GATE_TIMEOUT: g0 exceeded 1800s", flush=True)
+            returncode = 124
         layers.append(
             Layer(
                 id="g0",
                 name="pio_test_drive_build",
-                status="pass" if proc.returncode == 0 else "fail",
-                exit_code=proc.returncode,
+                status="pass" if returncode == 0 else "fail",
+                exit_code=returncode,
                 duration_s=round(time.time() - t0, 2),
                 detail="optional compile gate",
             )

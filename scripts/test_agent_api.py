@@ -5,11 +5,19 @@ import importlib.util
 import hashlib
 import io
 import json
+import os
 import tempfile
 import time
 import unittest
 from pathlib import Path
 from unittest import mock
+
+
+_LIVE_SUBPROCESS = os.environ.get("FZ_AGENT_API_NO_LIVE_SUBPROCESS") != "1"
+_SKIP_LIVE = unittest.skipUnless(
+    _LIVE_SUBPROCESS,
+    "live subprocess spawn disabled (FZ_AGENT_API_NO_LIVE_SUBPROCESS=1)",
+)
 
 
 FZ_ROOT = Path(__file__).resolve().parent.parent
@@ -417,18 +425,25 @@ class TestAgentApiRun(unittest.TestCase):
             API._run([r"D:\explicit\python.exe", "runner.py"], 5.0)
         self.assertEqual(popen.call_args.args[0][0], r"D:\explicit\python.exe")
 
+    @_SKIP_LIVE
     def test_run_timeout_kills_process_tree_fast(self) -> None:
-        t0 = time.monotonic()
-        with self.assertRaises(API.ApiError) as ctx:
-            API._run(
-                [API.sys.executable, "-c", "import time; print('mark', flush=True); time.sleep(60)"],
-                1.0,
-            )
-        elapsed = time.monotonic() - t0
+        # taskkill execution is mocked (asserted by args): force-killing real
+        # process trees in tests trips behavioral EDR rules (spawn+kill chain).
+        with mock.patch.object(API.subprocess, "run") as taskkill_run:
+            t0 = time.monotonic()
+            with self.assertRaises(API.ApiError) as ctx:
+                API._run(
+                    [API.sys.executable, "-c", "import time; print('mark', flush=True); time.sleep(3)"],
+                    1.0,
+                )
+            elapsed = time.monotonic() - t0
         self.assertLess(elapsed, 30.0)
         self.assertEqual(ctx.exception.code, "timeout")
         self.assertIn("mark", ctx.exception.details["stdout_tail"])
+        if os.name == "nt":
+            self.assertEqual(taskkill_run.call_args.args[0][:3], ["taskkill", "/F", "/T"])
 
+    @_SKIP_LIVE
     def test_run_tee_writes_log_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / "run.log"
@@ -437,15 +452,17 @@ class TestAgentApiRun(unittest.TestCase):
             self.assertIn("hello-tee", log.read_text(encoding="utf-8"))
             self.assertIn("hello-tee", result["stdout_tail"])
 
+    @_SKIP_LIVE
     def test_run_timeout_details_carry_log_path(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / "run.log"
-            with self.assertRaises(API.ApiError) as ctx:
-                API._run(
-                    [API.sys.executable, "-c", "import time; print('pre', flush=True); time.sleep(60)"],
-                    1.0,
-                    log_path=log,
-                )
+            with mock.patch.object(API.subprocess, "run"):
+                with self.assertRaises(API.ApiError) as ctx:
+                    API._run(
+                        [API.sys.executable, "-c", "import time; print('pre', flush=True); time.sleep(3)"],
+                        1.0,
+                        log_path=log,
+                    )
             self.assertEqual(ctx.exception.details.get("log_path"), str(log))
             self.assertIn("pre", log.read_text(encoding="utf-8"))
 
