@@ -43,7 +43,7 @@ class GrblTcp:
         self.sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
         self.sock.settimeout(self.timeout)
         time.sleep(self.boot_wait)
-        self._drain()
+        self._drain(idle=0.12)
 
     def close(self) -> None:
         if self.sock:
@@ -53,11 +53,19 @@ class GrblTcp:
                 pass
             self.sock = None
 
-    def _drain(self) -> List[str]:
+    def _drain(self, idle: float = 0.03) -> List[str]:
+        """Read until the socket goes idle for *idle* seconds.
+
+        *idle* is pure dead time appended after the last received chunk —
+        send_line pays it at least twice per line, so it dominates suite
+        wall-clock (measured 296 ms/line at 0.12). 0.03 keeps multi-chunk
+        responses intact on loopback while cutting the fixed cost; callers
+        that must catch slow trailing output (reset banner) pass more.
+        """
         lines: List[str] = []
         if not self.sock:
             return lines
-        self.sock.settimeout(0.12)
+        self.sock.settimeout(max(idle, 0.01))
         try:
             while True:
                 chunk = self.sock.recv(4096)
@@ -116,7 +124,7 @@ class GrblTcp:
             raise RuntimeError("not connected")
         self.sock.sendall(b"\x18")
         time.sleep(0.35)
-        return self._drain()
+        return self._drain(idle=0.12)
 
     def unlock(self) -> None:
         """Alias used by hardware_sim."""

@@ -761,13 +761,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 print("AGENT_GATE: flash image build failed; qemu_startup skip", flush=True)
                 _qemu_path = None
         if _qemu_path and _flash_image.is_file():
-            _code, _dur = _run(
-                [
-                    sys.executable, str(FZ_ROOT / "chip_sim" / "run_qemu_smoke.py"),
-                    "--timeout", "20", "--grbl-root", str(grbl),
-                ],
-                timeout_s=90,
-            )
+            _qemu_cmd = [
+                sys.executable, str(FZ_ROOT / "chip_sim" / "run_qemu_smoke.py"),
+                "--timeout", "20", "--grbl-root", str(grbl),
+            ]
+            if _pio_env == "qemu":
+                # BT-free image is expected to answer $I — silence is a
+                # firmware liveness regression, not a QEMU limitation.
+                _qemu_cmd.append("--require-protocol")
+            _code, _dur = _run(_qemu_cmd, timeout_s=90)
             layers.append(Layer(
                 id="qemu_startup",
                 name="espressif_qemu_esp32_startup_uart",

@@ -217,6 +217,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         action="store_true",
         help="skip firmware machine identity check",
     )
+    ap.add_argument(
+        "--require-protocol",
+        action="store_true",
+        help=(
+            "fail unless the guest answers $I/$$ (use with the BT-free "
+            "[env:qemu] image; panic exemption then only covers boots that "
+            "eventually prove protocol aliveness)"
+        ),
+    )
     args = ap.parse_args(argv)
 
     qemu = find_qemu()
@@ -436,6 +445,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             f"FAIL: firmware machine identity mismatch — banner={banner_machine!r} "
             f"but source tree selects {expected_machine!r}. Stale or "
             "MACHINE_FILENAME-overridden firmware.bin; rebuild: pio run -e release"
+        )
+        exit_code = 1
+    elif args.require_protocol and not protocol_responded:
+        print(
+            "FAIL: --require-protocol but guest never answered $I/$$ "
+            f"(hits={protocol_hits}); with the BT-free [env:qemu] image this "
+            "is a firmware liveness regression, not a QEMU limitation"
         )
         exit_code = 1
     elif oracle_verdict["status"] == "fail":
