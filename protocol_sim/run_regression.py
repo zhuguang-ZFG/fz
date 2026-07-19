@@ -104,6 +104,15 @@ def run_pass_file(client: GrblTcpClient, path: Path) -> CaseResult:
         wait = 6.0 if re.match(r"(?i)^[GM]\d", line) else 1.5
         resp = client.send_line(line, wait=wait)
         kind, code = classify_responses(resp)
+        if kind not in ("ok", "error", "alarm"):
+            # Program-end (M2/M30) and long motions ack only after motion sync;
+            # under host load the ok can land past the per-line window (or a
+            # bare [MSG:Pgm End] arrives before its ok). Keep draining before
+            # declaring the case red (flake seen on smoke_ok.nc).
+            late = client.drain_until_ack(timeout=12.0)
+            if late:
+                resp = list(resp) + late
+                kind, code = classify_responses(resp)
         ok = kind == "ok"
         if kind in ("error", "alarm"):
             ok = False

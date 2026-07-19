@@ -92,6 +92,25 @@ class GrblTcp:
             time.sleep(0.04)
         return collected
 
+    def drain_until_ack(self, timeout: float = 10.0) -> List[str]:
+        """Keep draining (without sending) until ok/error/ALARM or timeout.
+
+        Recovery path for late acks: program-end words (M2/M30) block until
+        motion sync, and under heavy host load the ok can arrive after the
+        per-line window of the original send_line call.
+        """
+        deadline = time.time() + max(timeout, 0.1)
+        collected: List[str] = []
+        while time.time() < deadline:
+            got = self._drain()
+            collected.extend(got)
+            if any(OK_RE.match(x) or ERROR_RE.search(x) or ALARM_RE.search(x) for x in got):
+                time.sleep(0.04)
+                collected.extend(self._drain())
+                break
+            time.sleep(0.05)
+        return collected
+
     def soft_reset(self) -> List[str]:
         if not self.sock:
             raise RuntimeError("not connected")
