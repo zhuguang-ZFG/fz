@@ -22,6 +22,7 @@ Not a product gate. Host SIL remains win_full_sim / protocol_sim.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import queue
@@ -32,7 +33,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from startup_log_oracle import analyze_startup_log
 
@@ -40,6 +41,66 @@ from startup_log_oracle import analyze_startup_log
 FZ_ROOT = Path(__file__).resolve().parent.parent
 RESULTS = FZ_ROOT / "results" / "qemu"
 VENDOR_QEMU = FZ_ROOT / "vendor" / "espressif_qemu"
+PANIC_BASELINE = Path(__file__).resolve().parent / "qemu_panic_baseline.json"
+
+# [MSG:Using machine:Custom 3-Axis HR4988]
+MACHINE_BANNER_RE = re.compile(r"\[MSG:Using machine:([^\]]+)\]")
+# assertion "..." failed: file ".../bt/bt.c", line 1134, function: esp_bt_controller_init
+ASSERT_PANIC_RE = re.compile(r'assertion "[^"]*" failed: file "([^"]+)", line (\d+)')
+GURU_PANIC_RE = re.compile(r"Guru Meditation Error: Core\s+\d+ panic'ed \(([^)]+)\)")
+
+
+def expected_machine_name(grbl_root: Path) -> Optional[str]:
+    """Resolve MACHINE_NAME from GRBL_ROOT's current Machine.h selection.
+
+    Identity guard: QEMU boots whatever firmware.bin sits in .pio/build — a
+    stale or MACHINE_FILENAME-overridden build silently tests the wrong
+    machine config (seen 2026-07-20: tree=custom_3axis_hr4988, image=SPI_DAISY_4X).
+    """
+    src = grbl_root / "Grbl_Esp32" / "src"
+    try:
+        text = (src / "Machine.h").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    m = re.search(r'^\s*#\s*include\s+"(Machines/[^"]+)"', text, re.M)
+    if not m:
+        return None
+    try:
+        htext = (src / m.group(1)).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    names = re.findall(r'#define\s+MACHINE_NAME\s+"([^"]+)"', htext)
+    return names[0] if names else None
+
+
+def panic_fingerprints(text: str) -> List[str]:
+    """Stable panic identities for baseline comparison (path tail + line / cause)."""
+    fps = set()
+    for m in ASSERT_PANIC_RE.finditer(text):
+        tail = "/".join(m.group(1).replace("\\", "/").split("/")[-2:])
+        fps.add(f"assert:{tail}:{m.group(2)}")
+    for m in GURU_PANIC_RE.finditer(text):
+        fps.add(f"guru:{m.group(1).strip()}")
+    return sorted(fps)
+
+
+def load_panic_baseline() -> List[str]:
+    try:
+        data = json.loads(PANIC_BASELINE.read_text(encoding="utf-8"))
+        return [str(x) for x in data.get("allowed", [])]
+    except (OSError, ValueError):
+        return []
+
+
+def _sha256(path: Path) -> Optional[str]:
+    try:
+        h = hashlib.sha256()
+        with path.open("rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return None
 
 
 def find_qemu() -> Optional[Path]:
@@ -131,6 +192,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         dest="ready_markers",
         help="ready marker for startup oracle (repeatable, default Grbl)",
     )
+    ap.add_argument(
+        "--grbl-root",
+        type=Path,
+        default=Path(os.environ.get("GRBL_ROOT", "")) if os.environ.get("GRBL_ROOT") else None,
+        help="firmware tree for machine identity check (default env GRBL_ROOT)",
+    )
+    ap.add_argument(
+        "--skip-identity",
+        action="store_true",
+        help="skip firmware machine identity check",
+    )
     args = ap.parse_args(argv)
 
     qemu = find_qemu()
@@ -202,6 +274,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     reader.start()
     pending_sends = ["\r\n", "$I\n", "$$\n"] if args.interactive else []
     next_send_at = time.time() + 2.0
+    # Grbl ready prompt: "Grbl 1.3a ['$' for help]" — probes sent before this
+    # line are consumed by a panicking earlier boot and never answered.
+    ready_line_re = re.compile(r"Grbl\s+\S+\s+\['\$'", re.I)
+    probes_rearmed = 0
 
     try:
         while True:
@@ -227,7 +303,15 @@ def main(argv: Optional[List[str]] = None) -> int:
             chunks.append(item)
             sys.stdout.write(item)
             sys.stdout.flush()
-            if pending_sends and re.search(r"Grbl|\[MSG:", item, re.I):
+            if args.interactive and ready_line_re.search(item) and probes_rearmed < 2:
+                # Fresh ready prompt (possibly after a panic-reboot): re-arm the
+                # full probe sequence so the responsive boot actually gets asked.
+                probes_rearmed += 1
+                pending_sends = ["\r\n", "$I\n", "$$\n"]
+                next_send_at = time.time() + 0.3
+                # Give the answering boot time to reply even near the deadline.
+                deadline = max(deadline, time.time() + 6.0)
+            elif pending_sends and re.search(r"Grbl|\[MSG:", item, re.I):
                 # Grbl banner sighting: probe immediately instead of waiting
                 # for the fixed 2s schedule (matters on panic-looping images).
                 next_send_at = min(next_send_at, time.time())
@@ -295,6 +379,24 @@ def main(argv: Optional[List[str]] = None) -> int:
     ready_markers = args.ready_markers or ["Grbl"]
     oracle_verdict = analyze_startup_log(text, ready_markers=ready_markers, max_boots=2)
 
+    # Firmware machine identity: banner vs current source tree selection
+    banner_m = MACHINE_BANNER_RE.search(text)
+    banner_machine = banner_m.group(1).strip() if banner_m else None
+    expected_machine = (
+        expected_machine_name(args.grbl_root)
+        if (args.grbl_root and not args.skip_identity)
+        else None
+    )
+    machine_mismatch = False
+    if banner_machine and expected_machine:
+        b, e = banner_machine.lower(), expected_machine.lower()
+        machine_mismatch = e not in b and b not in e
+
+    # Panic fingerprint baseline: known-in-QEMU panics are exempt, new ones red
+    fps = panic_fingerprints(text)
+    allowed_fps = load_panic_baseline()
+    new_fps = [f for f in fps if f not in allowed_fps]
+
     # ---------- exit code (honesty first) ----------
     exit_code: int = 0
     if qemu_host_error and not rom_boot_ok:
@@ -315,6 +417,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     elif not rom_boot_ok:
         print("FAIL: no ROM/bootloader markers (check cwd/share ROM + flash image)")
         exit_code = 1
+    elif machine_mismatch:
+        print(
+            f"FAIL: firmware machine identity mismatch — banner={banner_machine!r} "
+            f"but source tree selects {expected_machine!r}. Stale or "
+            "MACHINE_FILENAME-overridden firmware.bin; rebuild: pio run -e release"
+        )
+        exit_code = 1
     elif oracle_verdict["status"] == "fail":
         fatal_kinds = {e["kind"] for e in oracle_verdict.get("fatal_events", [])}
         panic_kinds = {"guru_meditation", "panic"}
@@ -323,10 +432,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         # radio/filesystem/task failures are real anomalies and must fail.
         exemptable = panic_kinds | {"restart_loop", "ready_timeout"}
         has_panic = bool(fatal_kinds & panic_kinds)
-        if has_panic and fatal_kinds <= exemptable:
+        if new_fps:
+            print(
+                f"FAIL: new panic fingerprint(s) not in baseline: {new_fps} "
+                f"(baseline: {PANIC_BASELINE.name})"
+            )
+            exit_code = 1
+        elif has_panic and fatal_kinds <= exemptable:
             print(
                 "PASS (experimental): ROM boot ok, startup oracle reports "
-                "fail with panic exemption — expected for Arduino product image"
+                "fail with baseline-known panic exemption"
             )
             exit_code = 0
         else:
@@ -334,19 +449,37 @@ def main(argv: Optional[List[str]] = None) -> int:
             exit_code = 1
     else:
         # Oracle pass
-        if protocol_responded:
+        if new_fps:
+            print(f"FAIL: new panic fingerprint(s) not in baseline: {new_fps}")
+            exit_code = 1
+        elif protocol_responded:
             print("PASS: boot + protocol response:", protocol_hits)
         else:
             print("PASS (experimental): boot ok, no protocol response")
-        exit_code = 0
+        exit_code = 0 if not new_fps else 1
 
     # ---------- report ----------
+    flash_sidecar: Dict[str, Any] = {}
+    try:
+        flash_sidecar = json.loads(flash.with_suffix(".json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
     report = {
         "suite": "qemu_smoke",
         "fidelity": "experimental_chip_sil_not_product_gate",
         "qemu": str(qemu),
         "package_root": str(pkg),
         "flash": str(flash),
+        "flash_sha256": _sha256(flash),
+        "flash_segments": flash_sidecar.get("segments"),
+        "machine_identity": {
+            "banner": banner_machine,
+            "expected_from_source": expected_machine,
+            "match": (not machine_mismatch) if (banner_machine and expected_machine) else None,
+        },
+        "panic_fingerprints": fps,
+        "panic_baseline_allowed": allowed_fps,
+        "new_panic_fingerprints": new_fps,
         "timeout_s": args.timeout,
         "uart_bytes": len(text.encode("utf-8", errors="replace")),
         "rom_boot_ok": rom_boot_ok,

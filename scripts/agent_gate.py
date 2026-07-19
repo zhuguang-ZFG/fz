@@ -742,21 +742,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         _qemu_path = None
     if _qemu_path and grbl is not None:
         _flash_image = RESULTS / "qemu" / "flash_image_4mb.bin"
+        # Prefer the BT-free chip-SIL build (pio env "qemu") when present: it
+        # survives past esp_bt_controller_init under QEMU, so the smoke can
+        # exercise the protocol instead of just the boot banner.
+        _pio_env = "qemu" if (grbl / ".pio" / "build" / "qemu" / "firmware.bin").is_file() else "release"
+        _firmware = grbl / ".pio" / "build" / _pio_env / "firmware.bin"
         _need_build = not _flash_image.is_file()
-        if not _need_build:
-            _firmware = grbl / ".pio" / "build" / "release" / "firmware.bin"
-            if _firmware.is_file():
-                _need_build = _firmware.stat().st_mtime > _flash_image.stat().st_mtime
+        if not _need_build and _firmware.is_file():
+            _need_build = _firmware.stat().st_mtime > _flash_image.stat().st_mtime
         if _need_build:
             _code, _dur = _run(
-                [sys.executable, str(FZ_ROOT / "chip_sim" / "build_flash_image.py"), "--grbl-root", str(grbl)]
+                [
+                    sys.executable, str(FZ_ROOT / "chip_sim" / "build_flash_image.py"),
+                    "--grbl-root", str(grbl), "--pio-env", _pio_env,
+                ]
             )
             if _code != 0:
                 print("AGENT_GATE: flash image build failed; qemu_startup skip", flush=True)
                 _qemu_path = None
         if _qemu_path and _flash_image.is_file():
             _code, _dur = _run(
-                [sys.executable, str(FZ_ROOT / "chip_sim" / "run_qemu_smoke.py"), "--timeout", "20"],
+                [
+                    sys.executable, str(FZ_ROOT / "chip_sim" / "run_qemu_smoke.py"),
+                    "--timeout", "20", "--grbl-root", str(grbl),
+                ],
                 timeout_s=90,
             )
             layers.append(Layer(

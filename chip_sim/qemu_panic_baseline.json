@@ -1,0 +1,7 @@
+{
+  "_doc": "Known firmware panics under Espressif QEMU (peripherals not emulated). run_qemu_smoke.py exempts only these fingerprints; any new fingerprint fails the layer so fresh crashes cannot hide behind 'QEMU always panics'. Remove entries as the [env:qemu] build eliminates them.",
+  "allowed": [
+    "assert:bt/bt.c:1134",
+    "guru:Unhandled debug exception"
+  ]
+}

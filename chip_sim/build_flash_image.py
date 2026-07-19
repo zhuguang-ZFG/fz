@@ -17,6 +17,7 @@ Does NOT prove product paper/BT; experimental chip SIL helper only.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -88,8 +89,8 @@ def find_bootloader(
     return None
 
 
-def find_build_artifacts(grbl_root: Path) -> Dict[str, Optional[Path]]:
-    build = grbl_root / ".pio" / "build" / "release"
+def find_build_artifacts(grbl_root: Path, pio_env: str = "release") -> Dict[str, Optional[Path]]:
+    build = grbl_root / ".pio" / "build" / pio_env
     if not build.is_dir():
         # any env
         builds = list((grbl_root / ".pio" / "build").glob("*/firmware.bin"))
@@ -195,10 +196,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         choices=("dio", "qio"),
         help="bootloader variant preference (default dio for QEMU)",
     )
+    ap.add_argument(
+        "--pio-env",
+        default="release",
+        help="PlatformIO env dir under .pio/build to take firmware from (e.g. qemu)",
+    )
     args = ap.parse_args(argv)
 
     grbl = args.grbl_root
-    arts = find_build_artifacts(grbl) if grbl.is_dir() else {}
+    arts = find_build_artifacts(grbl, pio_env=args.pio_env) if grbl.is_dir() else {}
     boot = args.bootloader or find_bootloader(flash_mode=args.flash_mode)
     part = args.partitions or arts.get("partitions")
     firm = args.firmware or arts.get("firmware")
@@ -243,7 +249,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         "flash_size_label": args.flash_size,
         "method": method,
         "segments": [
-            {"name": n, "offset": f"0x{o:x}", "path": str(p), "bytes": p.stat().st_size}
+            {
+                "name": n,
+                "offset": f"0x{o:x}",
+                "path": str(p),
+                "bytes": p.stat().st_size,
+                "mtime": p.stat().st_mtime,
+                "sha256": hashlib.sha256(p.read_bytes()).hexdigest(),
+            }
             for n, (o, p) in zip(("bootloader", "partitions", "app"), parts)
         ],
         "qemu_note": "experimental; Arduino product may panic/hang under QEMU",
