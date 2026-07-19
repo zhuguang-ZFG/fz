@@ -13,7 +13,8 @@
     {"motion_line": true, "defer_motion": true},
     {"motion_line": true, "defer_motion": true},
     {"motion_line": false, "defer_motion": false},
-    {"motion_line": false, "defer_motion": false},
+    {"motion_line": false, "defer_motion": true},
     {"motion_line": true, "defer_motion": true}
   ]
 }
+

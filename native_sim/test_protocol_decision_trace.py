@@ -50,10 +50,15 @@ class TestProtocolDecisionTrace(unittest.TestCase):
             self.assertTrue(decisions[line]["motion_g0_g3"], line)
             self.assertTrue(decisions[line]["motion_line"], line)
             self.assertTrue(decisions[line]["defer_motion"], line)
-        for line in ("G10 L2 P1 X0", "G20", "G38.2 Z-1 F10", "G92 X0", "(G1 X9) G92 X0", "$H"):
+        for line in ("G10 L2 P1 X0", "G20", "G92 X0", "(G1 X9) G92 X0"):
             self.assertFalse(decisions[line]["motion_g0_g3"], line)
             self.assertFalse(decisions[line]["motion_line"], line)
             self.assertFalse(decisions[line]["defer_motion"], line)
+        # G38 / $H are not is_motion_line, but must defer during paper change (fail-closed).
+        for line in ("G38.2 Z-1 F10", "$H"):
+            self.assertFalse(decisions[line]["motion_g0_g3"], line)
+            self.assertFalse(decisions[line]["motion_line"], line)
+            self.assertTrue(decisions[line]["defer_motion"], line)
 
     def test_modal_axis_only_line_is_motion(self) -> None:
         decisions = {item["line"]: item for item in self.report["lines"]}
@@ -72,9 +77,12 @@ class TestProtocolDecisionTrace(unittest.TestCase):
         for line in ("G91 X2", "G20 Y1", "G93 Z1 F2"):
             self.assertTrue(decisions[line]["motion_line"], line)
             self.assertTrue(decisions[line]["defer_motion"], line)
-        for line in ("G10 L2 P1 X0", "G92 X0", "G28 X0"):
+        for line in ("G10 L2 P1 X0", "G92 X0"):
             self.assertFalse(decisions[line]["motion_line"], line)
             self.assertFalse(decisions[line]["defer_motion"], line)
+        # G28 is not motion_line for modal/license policy, but defers while paper runs.
+        self.assertFalse(decisions["G28 X0"]["motion_line"])
+        self.assertTrue(decisions["G28 X0"]["defer_motion"])
     def test_notice_interval_is_wrap_safe(self) -> None:
         self.assertTrue(self.report["notice"]["notice_due"])
 
