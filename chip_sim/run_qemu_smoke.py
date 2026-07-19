@@ -92,6 +92,20 @@ def load_panic_baseline() -> List[str]:
         return []
 
 
+def newest_source_mtime(grbl_root: Path) -> Optional[float]:
+    """Newest firmware source mtime — detects builds older than the code."""
+    newest: Optional[float] = None
+    try:
+        for p in (grbl_root / "Grbl_Esp32" / "src").rglob("*"):
+            if p.suffix.lower() in (".h", ".hpp", ".c", ".cpp", ".ino"):
+                m = p.stat().st_mtime
+                if newest is None or m > newest:
+                    newest = m
+    except OSError:
+        return None
+    return newest
+
+
 def _sha256(path: Path) -> Optional[str]:
     try:
         h = hashlib.sha256()
@@ -464,6 +478,25 @@ def main(argv: Optional[List[str]] = None) -> int:
         flash_sidecar = json.loads(flash.with_suffix(".json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         pass
+    # Build staleness: identity check catches wrong-machine images, this
+    # catches right-machine-but-older-than-source images (evidence about
+    # code that has since changed). Warning only — rebuilds may lag on purpose.
+    firmware_stale: Optional[bool] = None
+    if args.grbl_root:
+        app_seg = next(
+            (s for s in (flash_sidecar.get("segments") or []) if s.get("name") == "app"),
+            None,
+        )
+        fw_mtime = (app_seg or {}).get("mtime")
+        src_mtime = newest_source_mtime(args.grbl_root)
+        if isinstance(fw_mtime, (int, float)) and src_mtime is not None:
+            firmware_stale = fw_mtime < src_mtime
+            if firmware_stale:
+                print(
+                    "WARN: firmware image is older than the newest source file "
+                    "under GRBL_ROOT src/ — evidence may describe stale code. "
+                    "Rebuild: pio run -e qemu (or release) then build_flash_image.py"
+                )
     report = {
         "suite": "qemu_smoke",
         "fidelity": "experimental_chip_sil_not_product_gate",
@@ -472,6 +505,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "flash": str(flash),
         "flash_sha256": _sha256(flash),
         "flash_segments": flash_sidecar.get("segments"),
+        "firmware_stale_vs_source": firmware_stale,
         "machine_identity": {
             "banner": banner_machine,
             "expected_from_source": expected_machine,

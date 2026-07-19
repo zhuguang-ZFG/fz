@@ -257,16 +257,38 @@ def build_observe() -> Dict[str, Any]:
             )
         )
 
+    # Stale-evidence guard: quick profiles skip the hardware layer, but
+    # last_hw_report.json (and triage built from it) survives from earlier
+    # runs — an old red case would otherwise block done-claims forever
+    # (seen 2026-07-20: json_feed_hold_tcp red from a stale report while a
+    # fresh rerun passed).
+    _hw_stale = False
+    if gate_layers.get("hardware") == "skip":
+        try:
+            _hw_path = FZ_ROOT / "hardware_sim" / "results" / "last_hw_report.json"
+            _gate_path = RESULTS / "agent_gate_last.json"
+            _hw_stale = (
+                _hw_path.is_file()
+                and _gate_path.is_file()
+                and _hw_path.stat().st_mtime < _gate_path.stat().st_mtime - 60
+            )
+        except OSError:
+            _hw_stale = False
+
     for c in (triage.get("hardware_failures") if isinstance(triage, dict) else None) or []:
         if not isinstance(c, dict):
             continue
         findings.append(
             _finding(
-                "hard",
+                "info" if _hw_stale else "hard",
                 "hardware_case",
-                f"hardware case failed: {c.get('name')}",
+                (
+                    f"stale hardware failure (predates this gate run, layer skipped): {c.get('name')}"
+                    if _hw_stale
+                    else f"hardware case failed: {c.get('name')}"
+                ),
                 detail=str(c.get("detail") or ""),
-                action="python hardware_sim/run_hw_sim.py --start-sim",
+                action=f"python scripts/sim_rerun.py --hardware {c.get('name')}",
                 refs=["hardware_sim/results/last_hw_report.json"],
             )
         )
