@@ -161,6 +161,38 @@ void fuzz_paper_core(Rng &rng) {
     require(!stable, "paper sensor policy should fail closed");
   }
 
+  PaperSensorLevel level = paper_sensor_level_core(low, samples, threshold);
+  if (samples == 0 || threshold == 0 || threshold > samples) {
+    require(level == PaperSensorLevel::Uncertain,
+            "invalid sensor level policy is uncertain");
+  } else if (low >= threshold) {
+    require(level == PaperSensorLevel::Present, "enough lows must be present");
+  } else if ((samples - low) >= threshold) {
+    require(level == PaperSensorLevel::Absent, "enough highs must be absent");
+  } else {
+    require(level == PaperSensorLevel::Uncertain,
+            "mid-count sensor samples are uncertain");
+  }
+
+  uint32_t streak = rng.range(4u);
+  uint32_t need = rng.range(5u);
+  PaperSensorLevel streak_level =
+      static_cast<PaperSensorLevel>(rng.range(3u));
+  bool confirmed =
+      paper_sensor_lost_streak_update(streak_level, &streak, need);
+  if (need == 0) {
+    require(!confirmed, "zero need never confirms lost");
+  } else if (streak_level != PaperSensorLevel::Absent) {
+    require(streak == 0 && !confirmed,
+            "non-absent clears lost streak");
+  } else {
+    require(streak >= 1, "absent increments streak");
+    require(confirmed == (streak >= need),
+            "lost confirm matches streak vs need");
+  }
+  require(!paper_sensor_lost_streak_update(PaperSensorLevel::Absent, nullptr, 2u),
+          "null streak pointer fails closed");
+
   uint32_t now = rng.next();
   uint32_t deadline = rng.next();
   bool active = paper_deadline_active(now, deadline);

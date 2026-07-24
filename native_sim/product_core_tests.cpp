@@ -171,6 +171,36 @@ void test_paper_sensor_and_deadline() {
   check(!paper_sensor_stable_core(0u, 0u, 0u),
         "invalid sensor policy fails closed");
 
+  // Symmetric present/absent: transitional 2–3/5 must not count as edge-lost.
+  check(paper_sensor_level_core(5u, 5u, 4u) == PaperSensorLevel::Present,
+        "5/5 low is present");
+  check(paper_sensor_level_core(4u, 5u, 4u) == PaperSensorLevel::Present,
+        "4/5 low is present");
+  check(paper_sensor_level_core(3u, 5u, 4u) == PaperSensorLevel::Uncertain,
+        "3/5 low is uncertain — must not count as lost");
+  check(paper_sensor_level_core(2u, 5u, 4u) == PaperSensorLevel::Uncertain,
+        "2/5 low is uncertain");
+  check(paper_sensor_level_core(1u, 5u, 4u) == PaperSensorLevel::Absent,
+        "1/5 low (4 high) is absent");
+  check(paper_sensor_level_core(0u, 5u, 4u) == PaperSensorLevel::Absent,
+        "0/5 low is absent");
+  check(paper_sensor_level_core(0u, 0u, 0u) == PaperSensorLevel::Uncertain,
+        "invalid policy is uncertain");
+
+  uint32_t streak = 0;
+  check(!paper_sensor_lost_streak_update(PaperSensorLevel::Uncertain, &streak, 2u),
+        "uncertain does not advance lost streak");
+  check(streak == 0u, "uncertain resets/keeps streak at 0");
+  check(!paper_sensor_lost_streak_update(PaperSensorLevel::Absent, &streak, 2u),
+        "first absent alone is not confirmed lost");
+  check(streak == 1u, "first absent increments streak");
+  check(paper_sensor_lost_streak_update(PaperSensorLevel::Absent, &streak, 2u),
+        "second consecutive absent confirms lost");
+  check(streak == 2u, "confirmed streak saturates at need");
+  check(!paper_sensor_lost_streak_update(PaperSensorLevel::Present, &streak, 2u),
+        "present clears lost confirmation");
+  check(streak == 0u, "present resets streak");
+
   check(paper_deadline_active(100u, 600u), "ordinary deadline is active");
   check(!paper_deadline_active(600u, 600u), "deadline expires at equality");
   const uint32_t near_wrap = 0xfffffff0u;
