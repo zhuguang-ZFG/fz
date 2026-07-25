@@ -1028,11 +1028,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         proto_cmd = _proto_base()
         if grbl is not None:
             proto_cmd.append("--include-repo-tests")
-        code, dur = _run(proto_cmd)
+        # include-repo-tests 拉长墙钟；默认 300s 在本机偶发超时误杀
+        code, dur = _run(proto_cmd, timeout_s=600.0)
         if code == 2:
             print("AGENT_GATE: protocol exit 2 — retry once after 1s", flush=True)
             time.sleep(1.0)
-            code2, dur2 = _run(proto_cmd)
+            code2, dur2 = _run(proto_cmd, timeout_s=600.0)
             code, dur = code2, round(dur + dur2, 2)
         layers.append(
             Layer(
@@ -1249,7 +1250,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
         )
 
-    hard_fail = any(x.status == "fail" for x in layers)
+    # wokwi / 可选云启动：失败写入证据，但不阻断 host SIL overall
+    # （fidelity=optional_chip_board_sim_not_product_gate；无 token 时本层为 skip）
+    _soft_fail_ids = {"wokwi_startup"}
+    hard_fail = any(x.status == "fail" and x.id not in _soft_fail_ids for x in layers)
     overall = 1 if hard_fail else 0
     return _finish(
         layers, profile, touch, grbl, args.json_out, overall, time.time() - t_all

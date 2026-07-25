@@ -1,24 +1,15 @@
 {
   "version": 1,
   "machine": "custom_3axis_hr4988.h",
+  "baseline_branch": "fix/panel-hold-after-align-116687e",
   "firmware_constants": {
     "Grbl_Esp32/src/PaperSystem.cpp": {
-      "PAPER_SENSOR_TIMEOUT_MS": 15000,
-      "PAPER_YIELD_STEPS": 25,
-      "PAPER_MAX_RETRIES": 1,
-      "FEEDER_RETRY_BACKOFF_STEPS": 500,
-      "PANEL_RETRY_BACKOFF_STEPS": 500,
-      "PAPER_SENSOR_STABLE_SAMPLES": 5,
-      "PAPER_SENSOR_STABLE_THRESHOLD": 4,
-      "PAPER_SENSOR_STABLE_INTERVAL_US": 500,
-      "PAPER_SENSOR_LOST_STREAK": 2
+      "PAPER_SENSOR_TIMEOUT_MS": 10000,
+      "PAPER_YIELD_STEPS": 50
     },
     "Grbl_Esp32/src/Machines/custom_3axis_hr4988.h": {
-      "PANEL_FAST_STEPS_MAX": 20000,
-      "PANEL_EDGE_APPROACH_STEPS": 400,
-      "PANEL_LOCATE_HI_US": 1500,
-      "PANEL_LOCATE_LO_US": 1500,
-      "FEEDER_FIND_STEPS_MAX": 16000,
+      "PANEL_FAST_STEPS_MAX": 16000,
+      "FEEDER_FIND_STEPS_MAX": 12000,
       "PAPER_RAMP_STEPS": 40,
       "FEEDER_FIND_RAMP_HI_US": 100,
       "FEEDER_FIND_RAMP_LO_US": 100,
@@ -38,14 +29,14 @@
       "kind": "scaled_from_firmware",
       "firmware_constant": "PAPER_SENSOR_TIMEOUT_MS",
       "scale_numerator": 1,
-      "scale_denominator": 6
+      "scale_denominator": 4,
+      "note": "commercial PAPER_SENSOR_TIMEOUT_MS=10000 → Plant 2500 (1/4); Branch_736afa70 era used 15000→2500 (1/6)"
     },
     "debounce_samples": {
       "expected": 4,
-      "kind": "threshold_abstraction",
-      "firmware_samples_constant": "PAPER_SENSOR_STABLE_SAMPLES",
-      "firmware_threshold_constant": "PAPER_SENSOR_STABLE_THRESHOLD"
+      "kind": "virtual_debounce_abstraction",
+      "note": "commercial branch hardcodes 3-sample/≥2 in paper_sensor_stable(); Plant debounce_samples=4 is a reviewed virtual abstraction, not a firmware macro mirror"
     }
   },
-  "evidence_boundary": "reviewed firmware/Plant parameter dictionary; validates declared constants and abstractions, not physical calibration or HIL"
+  "evidence_boundary": "reviewed firmware/Plant parameter dictionary for hutuji commercial baseline fix/panel-hold-after-align-116687e; validates declared constants and abstractions, not physical calibration or HIL"
 }
