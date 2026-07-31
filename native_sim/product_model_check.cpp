@@ -95,6 +95,24 @@ int main() {
         }
     }
 
+    auto check_underflow_resume = [&](bool expected, bool underflow, bool cycle_stopped, bool planner_has_block,
+                                      bool was_cycle, bool end_motion, bool execute_hold, bool motion_cancel,
+                                      bool soft_limit) {
+        ++checks;
+        if (ProtocolDecisionCore::should_resume_segment_underflow(underflow, cycle_stopped, planner_has_block,
+                                                                   was_cycle, end_motion, execute_hold,
+                                                                   motion_cancel, soft_limit) != expected) {
+            ++failures;
+        }
+    };
+    check_underflow_resume(true, true, true, true, true, false, false, false, false);
+    check_underflow_resume(false, true, true, true, true, true, false, false, false);
+    check_underflow_resume(false, true, true, true, true, false, true, false, false);
+    check_underflow_resume(false, true, true, true, true, false, false, true, false);
+    check_underflow_resume(false, true, true, true, true, false, false, false, true);
+    check_underflow_resume(false, true, true, false, true, false, false, false, false);
+    check_underflow_resume(false, true, true, true, false, false, false, false, false);
+
     for (bool sensor_active : {false, true}) {
         for (bool expected_active : {false, true}) {
             for (uint32_t elapsed_ms = 0; elapsed_ms <= 2; ++elapsed_ms) {
