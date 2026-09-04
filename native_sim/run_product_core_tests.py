@@ -43,6 +43,34 @@ def find_compiler() -> Tuple[Optional[Path], str]:
     return None, ""
 
 
+_SANITIZER_SUPPORT: dict[str, bool] = {}
+
+
+def sanitizer_supported(compiler: Path) -> bool:
+    """Probe whether the toolchain can link -fsanitize=address,undefined.
+
+    Not all MinGW-w64 builds ship sanitizer runtimes (e.g. no -lasan/-lubsan),
+    so gate the sanitizer flags on an actual probe link instead of toolchain kind.
+    """
+    cached = _SANITIZER_SUPPORT.get(str(compiler))
+    if cached is not None:
+        return cached
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    probe_src = RESULTS / "_sanitizer_probe.cpp"
+    probe_out = RESULTS / ("_sanitizer_probe.exe" if os.name == "nt" else "_sanitizer_probe")
+    probe_src.write_text("int main() { return 0; }\n", encoding="utf-8")
+    probe = subprocess.run(
+        [str(compiler), "-fsanitize=address,undefined", str(probe_src), "-o", str(probe_out)],
+        cwd=str(HERE),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    cached = probe.returncode == 0
+    _SANITIZER_SUPPORT[str(compiler)] = cached
+    return cached
+
+
 def build_command(compiler: Path, kind: str, grbl_root: Path, output: Path) -> List[str]:
     include_root = grbl_root / "Grbl_Esp32" / "src"
     command = [
@@ -58,7 +86,7 @@ def build_command(compiler: Path, kind: str, grbl_root: Path, output: Path) -> L
         "-o",
         str(output),
     ]
-    if kind in ("clang", "gnu"):
+    if kind in ("clang", "gnu") and sanitizer_supported(compiler):
         command[5:5] = ["-fsanitize=address,undefined"]
     return command
 
@@ -94,7 +122,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "grbl_root": str(grbl_root),
         "compiler": str(compiler) if compiler else None,
-        "sanitizers": ["address", "undefined"] if compiler else [],
+        "sanitizers": ["address", "undefined"] if compiler and sanitizer_supported(compiler) else [],
         "sanitizer_runtime_dir": None,
         "required_headers": [str(path) for path in required],
         "missing": missing,

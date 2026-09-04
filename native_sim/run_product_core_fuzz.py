@@ -36,7 +36,7 @@ def build_command(compiler: Path, kind: str, grbl_root: Path, output: Path) -> L
         "-o",
         str(output),
     ]
-    if kind in ("clang", "gnu"):
+    if kind in ("clang", "gnu") and native_tests.sanitizer_supported(compiler):
         command[5:5] = ["-fsanitize=address,undefined"]
     return command
 
@@ -66,7 +66,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "grbl_root": str(grbl_root),
         "compiler": str(compiler) if compiler else None,
-        "sanitizers": ["address", "undefined"] if compiler else [],
+        "sanitizers": ["address", "undefined"] if compiler and native_tests.sanitizer_supported(compiler) else [],
         "sanitizer_runtime_dir": None,
         "required_headers": [str(path) for path in required],
         "missing": missing,
