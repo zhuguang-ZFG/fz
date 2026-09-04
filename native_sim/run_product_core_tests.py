@@ -29,7 +29,10 @@ def find_compiler() -> Tuple[Optional[Path], str]:
     configured = os.environ.get("CXX", "").strip()
     candidates = [
         (_existing(configured), "gnu") if configured else (None, ""),
-        (Path(found), "clang") if (found := shutil.which("clang++")) else (None, ""),
+        # On Windows a PATH-resolved clang++ may be a cross toolchain (e.g.
+        # esp-clang) whose driver cannot link host binaries; require an explicit
+        # CXX or the llvm.org install layout for host clang there.
+        (Path(found), "clang") if (found := shutil.which("clang++")) and os.name != "nt" else (None, ""),
         (_existing("C:/Program Files/LLVM/bin/clang++.exe"), "clang"),
         (Path(found), "gnu") if (found := shutil.which("g++")) else (None, ""),
     ]
@@ -86,8 +89,14 @@ def build_command(compiler: Path, kind: str, grbl_root: Path, output: Path) -> L
         "-o",
         str(output),
     ]
-    if kind in ("clang", "gnu") and sanitizer_supported(compiler):
+    sanitizer = kind in ("clang", "gnu") and sanitizer_supported(compiler)
+    if sanitizer:
         command[5:5] = ["-fsanitize=address,undefined"]
+    if os.name == "nt" and kind == "gnu" and not sanitizer:
+        # SIL exes run from results/ with no DLLs beside them; a wrong-arch
+        # libstdc++-6.dll earlier on PATH (esp toolchains) crashes them at
+        # startup. Bake the MinGW runtime in instead of depending on PATH order.
+        command.extend(["-static-libstdc++", "-static-libgcc", "-static"])
     return command
 
 

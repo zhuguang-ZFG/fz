@@ -21,8 +21,8 @@ RESULTS = HERE / "results"
 SOURCE = HERE / "protocol_decision_trace.cpp"
 
 
-def build_command(compiler: Path, grbl_root: Path, output: Path) -> List[str]:
-    return [
+def build_command(compiler: Path, kind: str, grbl_root: Path, output: Path) -> List[str]:
+    command = [
         str(compiler),
         "-std=c++17",
         "-Wall",
@@ -34,6 +34,10 @@ def build_command(compiler: Path, grbl_root: Path, output: Path) -> List[str]:
         "-o",
         str(output),
     ]
+    if os.name == "nt" and kind == "gnu":
+        # Same rationale as run_product_core_tests.build_command.
+        command.extend(["-static-libstdc++", "-static-libgcc", "-static"])
+    return command
 
 
 def run_trace(
@@ -45,7 +49,7 @@ def run_trace(
     now_ms: int = 0,
     last_notice_ms: int = 0,
 ) -> Dict[str, Any]:
-    compiler, _ = native_tests.find_compiler()
+    compiler, compiler_kind = native_tests.find_compiler()
     if compiler is None:
         raise RuntimeError("no C++ compiler found")
     header = grbl_root / "Grbl_Esp32" / "src" / "ProtocolDecisionCore.h"
@@ -54,14 +58,15 @@ def run_trace(
     RESULTS.mkdir(parents=True, exist_ok=True)
     output = RESULTS / ("protocol_decision_trace.exe" if os.name == "nt" else "protocol_decision_trace")
     build = subprocess.run(
-        build_command(compiler, grbl_root, output),
+        build_command(compiler, compiler_kind, grbl_root, output),
         cwd=str(FZ_ROOT),
         capture_output=True,
         text=True,
         timeout=120,
     )
     if build.returncode != 0:
-        raise RuntimeError(build.stderr or build.stdout or "protocol decision build failed")
+        raise RuntimeError(f"protocol decision build failed (exit {build.returncode}): "
+                           f"{build.stderr or build.stdout or 'no output'}")
     command = [str(output), "--now-ms", str(now_ms), "--last-notice-ms", str(last_notice_ms)]
     if paper_running:
         command.append("--paper-running")
@@ -78,7 +83,8 @@ def run_trace(
         timeout=30,
     )
     if run.returncode != 0:
-        raise RuntimeError(run.stderr or run.stdout or "protocol decision trace failed")
+        raise RuntimeError(f"protocol decision trace failed (exit {run.returncode}): "
+                           f"{run.stderr or run.stdout or 'no output'}")
     trace_text, notice_text = run.stdout.strip().split("\n", 1)
     return {
         "lines": json.loads(trace_text),

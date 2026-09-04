@@ -22,7 +22,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="product finite-state and metamorphic checker")
     parser.add_argument("--grbl-root", type=Path, default=Path(os.environ.get("GRBL_ROOT", "D:/Users/Grbl_Esp32")))
     args = parser.parse_args(list(argv) if argv is not None else None)
-    compiler, _ = native_tests.find_compiler()
+    compiler, compiler_kind = native_tests.find_compiler()
     report = {
         "suite": "native_product_model_check",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -37,12 +37,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             raise RuntimeError("no C++ compiler found")
         output = RESULTS / ("product_model_check.exe" if os.name == "nt" else "product_model_check")
         RESULTS.mkdir(parents=True, exist_ok=True)
+        command = [
+            str(compiler), "-std=c++17", "-Wall", "-Wextra", "-Werror",
+            "-iquote", str(args.grbl_root.resolve() / "Grbl_Esp32" / "src"),
+            str(SOURCE), "-o", str(output),
+        ]
+        if os.name == "nt" and compiler_kind == "gnu":
+            # Same rationale as run_product_core_tests.build_command.
+            command.extend(["-static-libstdc++", "-static-libgcc", "-static"])
         build = subprocess.run(
-            [str(compiler), "-std=c++17", "-Wall", "-Wextra", "-Werror", "-iquote", str(args.grbl_root.resolve() / "Grbl_Esp32" / "src"), str(SOURCE), "-o", str(output)],
+            command,
             cwd=str(FZ_ROOT), capture_output=True, text=True, timeout=120,
         )
         if build.returncode != 0:
-            raise RuntimeError(build.stderr or build.stdout or "model checker build failed")
+            raise RuntimeError(f"model checker build failed (exit {build.returncode}): "
+                               f"{build.stderr or build.stdout or 'no output'}")
         run = subprocess.run([str(output)], cwd=str(FZ_ROOT), capture_output=True, text=True, timeout=30)
         result = json.loads(run.stdout)
         report.update(result)

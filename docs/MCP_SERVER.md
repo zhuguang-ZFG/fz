@@ -47,6 +47,7 @@ Clients using the common JSON configuration shape can launch it as follows:
       "command": "D:\\Users\\zhugu\\fz\\.venv-mcp\\Scripts\\python.exe",
       "args": ["D:\\Users\\zhugu\\fz\\scripts\\fz_mcp_server.py"],
       "env": {
+        "CXX": "D:\\zhugu-home\\mingw64\\mingw64\\bin\\g++.exe",
         "GRBL_ROOT": "D:\\Users\\Grbl_Esp32",
         "QWEN_ROOT": "D:\\QWEN3.0"
       }
@@ -54,6 +55,23 @@ Clients using the common JSON configuration shape can launch it as follows:
   }
 }
 ```
+
+## Host timeout contract
+
+Operations are bounded by the Agent API, not by the host: `run_gate` defaults
+to 600 s, the other tools default to 120 s, and a caller-supplied `timeout_s`
+is capped at `MAX_TIMEOUT_S` (1800 s). On expiry the runner is killed as a
+process tree and the API returns a structured `timeout` error.
+
+Hosts MUST NOT use a client-side request timeout below `MAX_TIMEOUT_S`: a
+host timeout aborts the request but not the runner, which then keeps the
+execution lock and wastes the simulation. Recommended host settings:
+
+- OMP `mcp.json`: `"timeout": 1800000`.
+- Claude Code: `MCP_TOOL_TIMEOUT=1800000` in the user environment, with
+  `MCP_TIMEOUT=60000` for server startup headroom.
+- If a request is interrupted anyway, the next call returns a structured
+  `busy` error with lock details until the orphaned runner exits.
 
 ## Capabilities
 

@@ -36,8 +36,12 @@ def build_command(compiler: Path, kind: str, grbl_root: Path, output: Path) -> L
         "-o",
         str(output),
     ]
-    if kind in ("clang", "gnu") and native_tests.sanitizer_supported(compiler):
+    sanitizer = kind in ("clang", "gnu") and native_tests.sanitizer_supported(compiler)
+    if sanitizer:
         command[5:5] = ["-fsanitize=address,undefined"]
+    if os.name == "nt" and kind == "gnu" and not sanitizer:
+        # Same rationale as run_product_core_tests.build_command.
+        command.extend(["-static-libstdc++", "-static-libgcc", "-static"])
     return command
 
 

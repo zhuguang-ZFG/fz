@@ -28,14 +28,18 @@ def trace_items(trace: Any) -> List[Dict[str, Any]]:
     return trace if isinstance(trace, list) else trace["lines"]
 def run_policy_trace(data: Dict[str, Any], grbl_root: Path) -> List[Dict[str, Any]]:
     import run_product_core_tests as native_tests
-    compiler, _ = native_tests.find_compiler()
+    compiler, compiler_kind = native_tests.find_compiler()
     if compiler is None:
         raise RuntimeError("no C++ compiler found")
     output = RESULTS / ("product_policy_trace.exe" if os.name == "nt" else "product_policy_trace")
     command = [str(compiler), "-std=c++17", "-Wall", "-Wextra", "-Werror", "-iquote", str(grbl_root / "Grbl_Esp32" / "src"), str(POLICY_SOURCE), "-o", str(output)]
+    if os.name == "nt" and compiler_kind == "gnu":
+        # Same rationale as run_product_core_tests.build_command.
+        command.extend(["-static-libstdc++", "-static-libgcc", "-static"])
     build = subprocess.run(command, cwd=str(HERE.parent), capture_output=True, text=True, timeout=120)
     if build.returncode != 0:
-        raise RuntimeError(build.stderr or build.stdout or "policy trace build failed")
+        raise RuntimeError(f"policy trace build failed (exit {build.returncode}): "
+                           f"{build.stderr or build.stdout or 'no output'}")
     domain = data["domain"]
     if domain == "license":
         config = data["license"]
