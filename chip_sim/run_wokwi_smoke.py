@@ -79,13 +79,29 @@ def resolve_firmware(grbl_root: Path) -> tuple[Optional[Path], Optional[Path]]:
 
 
 def write_wokwi_toml(firmware: Path, elf: Optional[Path], out_dir: Path) -> Path:
-    """Copy firmware into out_dir; wokwi-cli resolves paths relative to project dir."""
+    """装载与当前应用一致的完整 flash，避免模拟器替换启动程序和分区表。"""
+    full_flash = firmware.with_name(firmware.stem + "_full_0x0.bin")
+    partitions = firmware.with_name("partitions.bin")
+    if not full_flash.is_file() or not partitions.is_file():
+        raise ValueError("complete PlatformIO flash artifacts required")
+    image = full_flash.read_bytes()
+    application = firmware.read_bytes()
+    table = partitions.read_bytes()
+    if (not application or not table or image[0x1000:0x1001] != b"\xe9"
+            or image[0x10000:0x10000 + len(application)] != application
+            or image[0x8000:0x8000 + len(table)] != table):
+        raise ValueError("complete flash does not match current application/partitions")
     out_dir.mkdir(parents=True, exist_ok=True)
-    fw_src = firmware.resolve()
+    fw_src = full_flash.resolve()
     elf_src = elf.resolve() if elf and elf.is_file() else None
     fw_dst = out_dir / "firmware.bin"
     elf_dst = out_dir / "firmware.elf"
     shutil.copy2(fw_src, fw_dst)
+    # 官方 flasher_args.json 接口显式从 0x0 加载；禁止把整片映像当 app 偏移猜测。
+    (out_dir / "flasher_args.json").write_text(
+        json.dumps({"flash_files": {"0x0": "firmware.bin"}}, indent=2) + "\n",
+        encoding="utf-8",
+    )
     if elf_src and elf_src.is_file():
         shutil.copy2(elf_src, elf_dst)
     elif not elf_dst.is_file():
@@ -96,7 +112,7 @@ def write_wokwi_toml(firmware: Path, elf: Optional[Path], out_dir: Path) -> Path
 
 [wokwi]
 version = 1
-firmware = 'firmware.bin'
+firmware = 'flasher_args.json'
 elf = 'firmware.elf'
 rfc2217ServerPort = 4000
 """
@@ -176,7 +192,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2 if args.require else 2
 
     work = RESULTS
-    write_wokwi_toml(bin_p, elf_p, work)
+    try:
+        write_wokwi_toml(bin_p, elf_p, work)
+    except (OSError, ValueError) as exc:
+        report.update(status="fail", error="incomplete_flash", detail=str(exc))
+        work.mkdir(parents=True, exist_ok=True)
+        (work / "wokwi_smoke_report.json").write_text(
+            json.dumps(report, indent=2) + "\n", encoding="utf-8"
+        )
+        print("ERROR: rebuild the complete PlatformIO flash artifacts", file=sys.stderr)
+        return 1
+    report["full_flash"] = str(bin_p.with_name(bin_p.stem + "_full_0x0.bin"))
     report["work_dir"] = str(work)
     print(f"wrote {work / 'wokwi.toml'}")
     print(f"diagram: {work / 'diagram.json'}")

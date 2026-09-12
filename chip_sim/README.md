@@ -1,5 +1,12 @@
 # chip_sim — optional ESP32 chip-level tooling (probe only by default)
 
+**2026-09-13 装载修复**：PlatformIO 的 `firmware.bin` 只是应用；本 fork 使用 `min_spiffs.csv`。
+Wokwi 必须经 `flasher_args.json` 从 `0x0` 加载同次构建的 `firmware_full_0x0.bin`，脚本逐字节核对内嵌应用和分区表。
+缺失或陈旧合并镜像直接失败，不回退为 app-only。官方依据：[project-config](https://docs.wokwi.com/vscode/project-config)，访问 2026-09-13；
+CLI v0.26.1 / API 1.0.0-20260907-g3f4fedff，适用本地 Arduino ESP32/Grbl fork，不等于板上验证。
+同一应用 SHA `d7d7d8ff…f17620`：app-only 30 秒重启 12 次；完整 flash 单次启动到 Grbl ready，无 fatal。
+证据：`D:/Users/hutuji/results/20260913-crossrepo-review/fz-before/` 与 `wokwi-full-flash/`；离线回归 `python -m unittest discover -s chip_sim -p test_*.py -q`。
+
 **Not** the default product gate. Host SIL remains `protocol_sim` + `hardware_sim` + `win_full_sim`.
 
 ## Why this folder exists
