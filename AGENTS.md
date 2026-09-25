@@ -1,11 +1,13 @@
 # fz — Agent rules (host SIL)
 
+2026-09-24 机型分流：量产 `massprod/nopaper-1.3a` 不含自动换纸。agent_gate 从 Machine.h、机型宏、版本戳和 DIO 配置核实身份；无换纸使用独立7引脚契约及6类缺陷注入，纸路专用核心标为不适用。未知/缺失身份不能免检。两种机型均跑真实产品网络/电机回归、协议与运动；Wokwi/QEMU 每次从所选工作树重建整片映像。未证明板上/OTA/射频。
+
 This repo is the **only** home for Grbl/写字机 **PC simulation gates**.  
 Product firmware: `D:/Users/Grbl_Esp32` (or `GRBL_ROOT`). Cloud: `D:/QWEN3.0` (optional `QWEN_ROOT`).
 
 **hutuji 商业基线：** Grbl 分支 `fix/panel-hold-after-align-116687e`；枢纽约束见 `D:/Users/hutuji/docs/agent-constraint-matrix.md` 与 `docs/agent-anti-drift.md`。  
 **契约对齐方向：** `hardware_sim/paper_firmware_contract.json` 必须跟随商业固件常量；**禁止**为门禁绿去改换纸机械/时序。  
-`wokwi_startup` 为可选云启动：失败保留证据，但**不**单独阻断 host SIL overall（见 `scripts/agent_gate.py`）。
+`wokwi_startup` 为可选云启动：仅串口无任何输出且发生启动前鉴权/连接失败时不阻断 host SIL；固件异常、超时和缺失报告仍阻断。QEMU 合并失败必须 fail，默认验证所选工作树 release，不拾取遗留 qemu 镜像。
 
 **What you are equipped with:** not a full-chip twin — a **PC exam + medical record + anti-BS rails**.  
 One-pager: [`docs/AGENT_SURFACE.md`](docs/AGENT_SURFACE.md).

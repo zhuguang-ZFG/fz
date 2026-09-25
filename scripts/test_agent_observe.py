@@ -6,12 +6,44 @@ import json
 import subprocess
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 FZ = Path(__file__).resolve().parent.parent
 
 
 class TestAgentObserve(unittest.TestCase):
+    def _observe_reports(self, gate, **reports):
+        from scripts import agent_observe as observe
+        reports["agent_gate_last.json"] = gate
+        with mock.patch.object(observe, "_read_json", side_effect=lambda path: reports.get(path.name, {})):
+            return observe.build_observe()
+
+    def test_startup_failures_route_to_full_gate_without_duplicate_actions(self):
+        result = self._observe_reports({"overall_status": "fail", "failures": [
+            {"id": "qemu_startup", "status": "fail"},
+            {"id": "wokwi_startup", "status": "fail"},
+        ]})
+        actions = [item["action"] for item in result["findings"] if item["category"] == "layer_fail"]
+        self.assertEqual(actions, ["python scripts/agent_gate.py --profile standard"] * 2)
+        self.assertEqual(result["next_actions"].count(actions[0]), 1)
+
+    def test_skipped_nopaper_coverage_ignores_previous_paper_report(self):
+        gate = {"overall_status": "pass", "layers": [{"id": "native_coverage", "status": "skip"}]}
+        report = {"status": "skip", "stderr": "LLVM missing"}
+        result = self._observe_reports(gate, **{"coverage_summary.json": report})
+        self.assertFalse(any(item["category"] == "native_coverage" for item in result["findings"]))
+        gate["layers"][0]["exit_code"] = 2
+        result = self._observe_reports(gate, **{"coverage_summary.json": report})
+        self.assertTrue(any(item["category"] == "native_coverage" for item in result["findings"]))
+
+    def test_skipped_hardware_cannot_reuse_recent_failure_as_current(self):
+        gate = {"overall_status": "pass", "layers": [{"id": "hardware", "status": "skip"}]}
+        result = self._observe_reports(gate, **{"triage_last.json": {"hardware_failures": [{"name": "old"}]}})
+        failures = [item for item in result["findings"] if item["category"] == "hardware_case"]
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0]["severity"], "info")
+
     def test_cli(self) -> None:
         r = subprocess.run(
             [sys.executable, str(FZ / "scripts" / "agent_observe.py"), "--quiet"],
@@ -194,6 +226,16 @@ class TestAgentObserve(unittest.TestCase):
         findings = mod._wokwi_startup_findings({"status": "fail", "cloud_error": "unauthorized"}, "fail")
         self.assertEqual(findings[0]["severity"], "hard")
         self.assertIn("authentication", findings[0]["title"])
+
+    def test_prestart_cloud_failure_is_soft_but_firmware_failure_stays_hard(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("agent_observe", FZ / "scripts/agent_observe.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        report = {"status": "fail", "cloud_error": "transport", "blocking": False}
+        self.assertEqual(mod._wokwi_startup_findings(report, "fail")[0]["severity"], "soft")
+        report["blocking"] = True
+        self.assertEqual(mod._wokwi_startup_findings(report, "fail")[0]["severity"], "hard")
 
     def test_skipped_wokwi_ignores_stale_report(self) -> None:
         import importlib.util

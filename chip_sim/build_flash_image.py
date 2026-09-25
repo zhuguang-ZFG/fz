@@ -91,11 +91,6 @@ def find_bootloader(
 
 def find_build_artifacts(grbl_root: Path, pio_env: str = "release") -> Dict[str, Optional[Path]]:
     build = grbl_root / ".pio" / "build" / pio_env
-    if not build.is_dir():
-        # any env
-        builds = list((grbl_root / ".pio" / "build").glob("*/firmware.bin"))
-        if builds:
-            build = builds[0].parent
     return {
         "firmware": (build / "firmware.bin") if (build / "firmware.bin").is_file() else None,
         "partitions": (build / "partitions.bin")

@@ -9,10 +9,18 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from build_flash_image import SIZE_MAP, pure_merge  # noqa: E402
+from build_flash_image import SIZE_MAP, pure_merge, find_build_artifacts  # noqa: E402
 
 
 class TestPureMerge(unittest.TestCase):
+    def test_missing_requested_environment_never_uses_another_image(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            other = root / ".pio/build/other"
+            other.mkdir(parents=True)
+            (other / "firmware.bin").write_bytes(b"wrong-board")
+            self.assertIsNone(find_build_artifacts(root, "release")["firmware"])
+
     def test_merge_layout(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             t = Path(td)

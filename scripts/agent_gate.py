@@ -67,6 +67,7 @@ class Layer:
     duration_s: float = 0.0
     detail: str = ""
     log_hint: str = ""
+    blocking: bool = True
 
 
 def _run(cmd: List[str], cwd: Optional[Path] = None, timeout_s: Optional[float] = 300.0) -> tuple[int, float]:
@@ -268,6 +269,39 @@ def _failed_case_names(report_path: Path, limit: int = 8) -> List[str]:
     return names[:limit]
 
 
+
+def run_qemu_layer(grbl: Optional[Path], flash_mode: str, qemu: Optional[Path]) -> Layer:
+    layer = Layer(id="qemu_startup", name="espressif_qemu_esp32_startup_uart",
+                  status="skip", detail="qemu or firmware unavailable; chip SIL startup not claimed")
+    if qemu is None or grbl is None:
+        return layer
+    # 门禁验证本工作树 release；遗留 qemu 目录不能替换当前产品镜像。
+    # 专用裁剪镜像仍可手动运行，但不能冒充本轮量产启动证据。
+    flash = RESULTS / "qemu/flash_image_4mb.bin"
+    code, duration = _run([
+        sys.executable, str(FZ_ROOT / "chip_sim/build_flash_image.py"),
+        "--grbl-root", str(grbl), "--pio-env", "release",
+        "--flash-mode", flash_mode, "--out", str(flash),
+    ])
+    layer.duration_s = duration
+    if code != 0 or not flash.is_file():
+        layer.status = "fail"
+        layer.exit_code = code or 1
+        layer.detail = "release 整片镜像合并失败或未产出；不得使用旧镜像或记成跳过"
+        return layer
+    code, duration = _run([
+        sys.executable, str(FZ_ROOT / "chip_sim/run_qemu_smoke.py"),
+        "--flash", str(flash),
+        "--timeout", "20", "--grbl-root", str(grbl), "--require-protocol",
+    ], timeout_s=90)
+    layer.duration_s += duration
+    layer.status = "pass" if code == 0 else "fail"
+    layer.exit_code = code
+    layer.log_hint = "results/qemu/qemu_smoke_report.json"
+    layer.detail = "当前 release 的实验性芯片启动检查；不证明板上、射频或 OTA"
+    return layer
+
+
 def agent_hints_for_failures(layers: List[Layer]) -> List[str]:
     hints: List[str] = []
     for L in layers:
@@ -343,6 +377,12 @@ def agent_hints_for_failures(layers: List[Layer]) -> List[str]:
             hints.append(
                 "grblHAL_sim missing — set GRBLHAL_SIM or restore vendor/grblhal_sim/bin"
             )
+        elif L.id in {"qemu_startup", "wokwi_startup"}:
+            hints.append(f"{L.id} failed (blocking={L.blocking}); inspect {L.log_hint or 'gate log'}; "
+                         "verify current release image and startup UART, then rerun agent_gate --profile standard.")
+        else:
+            # 新增层同样必须输出失败，不能因缺少专用提示而报无故障。
+            hints.append(f"Layer {L.id} failed (blocking={L.blocking}); inspect {L.log_hint or 'gate log'}: {L.detail}")
     if not hints:
         hints.append("No hard failures.")
     # soft divergence + allowlist (informational)
@@ -448,6 +488,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     layers: List[Layer] = []
     t_all = time.time()
 
+    sys.path.insert(0, str(FZ_ROOT))
+    from sim_common.product_profile import identify_product
+    product = None
+    if grbl is not None:
+        try:
+            product = identify_product(grbl)
+        except (OSError, ValueError) as exc:
+            layers.append(Layer(id="product_profile", name="product_profile", status="fail", detail=str(exc)))
+            return _finish(layers, profile, touch, grbl, args.json_out, 1, time.time() - t_all)
+        layers.append(Layer(id="product_profile", name="product_profile", status="pass", detail=product.sku))
+        # 所有子进程用同一解析后的目标，--grbl-root 不得与继承的环境变量分叉。
+        os.environ["GRBL_ROOT"] = str(grbl.resolve())
+    paper_enabled = product is not None and product.sku == "paper"
+    paper_skip = "无换纸 SKU：已核对身份，不适用纸路纯核心" if product else "GRBL_ROOT unavailable"
+    pin_contract = FZ_ROOT / "hardware_sim" / (product.pin_contract if product else "machine_pin_contract.json")
     print(f"AGENT_GATE profile={profile} grbl_root={grbl}", flush=True)
     print(f"AGENT_GATE touch={json.dumps(touch)}", flush=True)
 
@@ -670,7 +725,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
         )
     scenario_runner = FZ_ROOT / "native_sim" / "run_protocol_scenarios.py"
-    if grbl is not None and scenario_runner.is_file():
+    if paper_enabled and scenario_runner.is_file():
         code, dur = _run(
             [
                 sys.executable,
@@ -696,7 +751,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 id="protocol_scenarios",
                 name="product_protocol_scenarios",
                 status="skip",
-                detail="GRBL_ROOT unavailable",
+                detail=paper_skip,
             )
         )
     native_runner = FZ_ROOT / "native_sim" / "run_product_core_tests.py"
@@ -707,7 +762,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     machine_pin_erc_runner = FZ_ROOT / "hardware_sim" / "run_machine_pin_erc.py"
     machine_pin_mutation_runner = FZ_ROOT / "hardware_sim" / "run_machine_pin_mutation_campaign.py"
     if grbl is not None and machine_pin_erc_runner.is_file():
-        code, dur = _run([sys.executable, str(machine_pin_erc_runner), "--grbl-root", str(grbl)])
+        code, dur = _run([sys.executable, str(machine_pin_erc_runner), "--grbl-root", str(grbl), "--contract", str(pin_contract)])
         layers.append(
             Layer(
                 id="machine_pin_erc",
@@ -722,79 +777,53 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     else:
         layers.append(Layer(id="machine_pin_erc", name="eda_style_machine_pin_erc", status="skip", detail="GRBL_ROOT unavailable"))
     if grbl is not None and machine_pin_mutation_runner.is_file():
-        code, dur = _run([sys.executable, str(machine_pin_mutation_runner), "--grbl-root", str(grbl)])
+        code, dur = _run([sys.executable, str(machine_pin_mutation_runner), "--grbl-root", str(grbl), "--contract", str(pin_contract)])
         layers.append(Layer(id="machine_pin_mutations", name="firmware_pin_checker_defect_injection", status="pass" if code == 0 else "fail", exit_code=code, duration_s=dur, log_hint="hardware_sim/results/machine_pin_mutations.json", detail="valid baseline must pass and all six temporary firmware pin defects must be rejected"))
     else:
         layers.append(Layer(id="machine_pin_mutations", name="firmware_pin_checker_defect_injection", status="skip", detail="GRBL_ROOT unavailable"))
+    if grbl is not None:
+        test_dir = grbl / "scripts/tests"
+        required_tests = {"test_web_settings_params.py", "test_web_command_context.py", "test_telnet_receive.py", "test_motor_disable.py"}
+        if not all((test_dir / name).is_file() for name in required_tests):
+            layers.append(Layer(id="product_host", name="product_host_regressions", status="fail", detail="缺少必选产品网络/电机回归，不能零测试通过"))
+        else:
+            code, dur = _run([sys.executable, "-m", "unittest", "discover", "-s", str(test_dir), "-v"])
+            layers.append(Layer(id="product_host", name="product_host_regressions", status="pass" if code == 0 else "fail", exit_code=code, duration_s=dur, detail="当前工作树真实源码提取回归；不替代 ESP32 调度/HIL"))
     wokwi_runner = FZ_ROOT / "chip_sim" / "run_wokwi_smoke.py"
-    if grbl is not None and os.environ.get("WOKWI_CLI_TOKEN") and wokwi_runner.is_file():
-        code, dur = _run([sys.executable, str(wokwi_runner), "--grbl-root", str(grbl), "--timeout-ms", "30000", "--expect-text", "Grbl", "--require"])
-        layers.append(Layer(id="wokwi_startup", name="wokwi_cloud_esp32_startup", status="pass" if code == 0 else "fail", exit_code=code, duration_s=dur, log_hint="results/wokwi/wokwi_smoke_report.json", detail="optional cloud startup: ready marker required; panic/watchdog/restart/init failures rejected"))
+    if profile == "quick":
+        # quick 只跑协议层；芯片级启动证据属 standard+，此处显式 skip 而非偷跑。
+        layers.append(Layer(id="wokwi_startup", name="wokwi_cloud_esp32_startup", status="skip", detail="profile=quick：chip SIL 启动证据属 standard 及以上层"))
+    elif grbl is not None and os.environ.get("WOKWI_CLI_TOKEN") and wokwi_runner.is_file():
+        # 总是由本次目标的 release 产物重建，不能复用另一工作树的整片镜像。
+        source_flash = RESULTS / "wokwi" / "source_full.bin"
+        code, dur = _run([sys.executable, str(FZ_ROOT / "chip_sim/build_flash_image.py"), "--grbl-root", str(grbl), "--pio-env", "release", "--flash-mode", product.flash_mode, "--out", str(source_flash)])
+        wokwi_blocking = True
+        if code == 0:
+            wokwi_started = time.time()
+            code, dur = _run([sys.executable, str(wokwi_runner), "--grbl-root", str(grbl), "--flash", str(source_flash), "--timeout-ms", "30000", "--expect-text", "['$' for help]", "--require"])
+            cloud_report = RESULTS / "wokwi/wokwi_smoke_report.json"
+            try:
+                if cloud_report.stat().st_mtime >= wokwi_started:
+                    wokwi_blocking = json.loads(cloud_report.read_text(encoding="utf-8")).get("blocking", True) is not False
+            except (OSError, ValueError):
+                pass  # 无本轮证据时保持严格失败。
+        layers.append(Layer(id="wokwi_startup", name="wokwi_cloud_esp32_startup", status="pass" if code == 0 else "fail", exit_code=code, duration_s=dur, log_hint="results/wokwi/wokwi_smoke_report.json", detail="optional cloud startup: ready marker required; panic/watchdog/restart/init failures rejected", blocking=wokwi_blocking))
     else:
         layers.append(Layer(id="wokwi_startup", name="wokwi_cloud_esp32_startup", status="skip", detail="WOKWI_CLI_TOKEN or firmware unavailable; cloud initialization not claimed"))
     # --- qemu_startup layer (mirrors wokwi pattern) ---
-    _qemu_path: Optional[Path] = None
-    try:
-        from run_qemu_smoke import find_qemu as _find_qemu  # type: ignore[import-untyped]
-
-        _qemu_path = _find_qemu()  # type: ignore[no-untyped-call]
-    except ImportError:
-        _qemu_path = None
-    if _qemu_path and grbl is not None:
-        _flash_image = RESULTS / "qemu" / "flash_image_4mb.bin"
-        # Prefer the BT-free chip-SIL build (pio env "qemu") when present: it
-        # survives past esp_bt_controller_init under QEMU, so the smoke can
-        # exercise the protocol instead of just the boot banner.
-        _pio_env = "qemu" if (grbl / ".pio" / "build" / "qemu" / "firmware.bin").is_file() else "release"
-        _firmware = grbl / ".pio" / "build" / _pio_env / "firmware.bin"
-        _need_build = not _flash_image.is_file()
-        if not _need_build and _firmware.is_file():
-            _need_build = _firmware.stat().st_mtime > _flash_image.stat().st_mtime
-        if _need_build:
-            _code, _dur = _run(
-                [
-                    sys.executable, str(FZ_ROOT / "chip_sim" / "build_flash_image.py"),
-                    "--grbl-root", str(grbl), "--pio-env", _pio_env,
-                ]
-            )
-            if _code != 0:
-                print("AGENT_GATE: flash image build failed; qemu_startup skip", flush=True)
-                _qemu_path = None
-        if _qemu_path and _flash_image.is_file():
-            _qemu_cmd = [
-                sys.executable, str(FZ_ROOT / "chip_sim" / "run_qemu_smoke.py"),
-                "--timeout", "20", "--grbl-root", str(grbl),
-            ]
-            if _pio_env == "qemu":
-                # BT-free image is expected to answer $I — silence is a
-                # firmware liveness regression, not a QEMU limitation.
-                _qemu_cmd.append("--require-protocol")
-            _code, _dur = _run(_qemu_cmd, timeout_s=90)
-            layers.append(Layer(
-                id="qemu_startup",
-                name="espressif_qemu_esp32_startup_uart",
-                status="pass" if _code == 0 else "fail",
-                exit_code=_code,
-                duration_s=_dur,
-                log_hint="results/qemu/qemu_smoke_report.json",
-                detail="experimental chip SIL; UART interactive + startup oracle ≠ product gate",
-            ))
-        else:
-            layers.append(Layer(
-                id="qemu_startup",
-                name="espressif_qemu_esp32_startup_uart",
-                status="skip",
-                detail="qemu or firmware unavailable; chip SIL startup not claimed",
-            ))
+    if profile == "quick":
+        layers.append(Layer(id="qemu_startup", name="espressif_qemu_esp32_startup_uart", status="skip", detail="profile=quick：chip SIL 启动证据属 standard 及以上层"))
     else:
-        layers.append(Layer(
-            id="qemu_startup",
-            name="espressif_qemu_esp32_startup_uart",
-            status="skip",
-            detail="qemu or firmware unavailable; chip SIL startup not claimed",
-        ))
+        _qemu_path: Optional[Path] = None
+        try:
+            from run_qemu_smoke import find_qemu as _find_qemu  # type: ignore[import-untyped]
+
+            _qemu_path = _find_qemu()  # type: ignore[no-untyped-call]
+        except ImportError:
+            _qemu_path = None
+        layers.append(run_qemu_layer(grbl, product.flash_mode if product else "dio", _qemu_path))
     # --- end qemu_startup ---
-    if grbl is not None and paper_contract_runner.is_file():
+    if paper_enabled and paper_contract_runner.is_file():
         code, dur = _run([sys.executable, str(paper_contract_runner), "--grbl-root", str(grbl)])
         layers.append(
             Layer(
@@ -813,10 +842,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 id="paper_contract",
                 name="paper_firmware_plant_contract",
                 status="skip",
-                detail="GRBL_ROOT unavailable",
+                detail=paper_skip,
             )
         )
-    if grbl is not None and native_runner.is_file():
+    if paper_enabled and native_runner.is_file():
         code, dur = _run(
             [
                 sys.executable,
@@ -842,11 +871,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 id="native_product",
                 name="native_product_core_asan_ubsan",
                 status="skip",
-                detail="GRBL_ROOT unavailable",
+                detail=paper_skip,
             )
         )
 
-    if grbl is not None and native_model_runner.is_file():
+    if paper_enabled and native_model_runner.is_file():
         code, dur = _run(
             [sys.executable, str(native_model_runner), "--grbl-root", str(grbl)]
         )
@@ -867,10 +896,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 id="native_model",
                 name="native_product_model_check",
                 status="skip",
-                detail="GRBL_ROOT unavailable",
+                detail=paper_skip,
             )
         )
-    if grbl is not None and native_fuzz_runner.is_file():
+    if paper_enabled and native_fuzz_runner.is_file():
         code, dur = _run(
             [
                 sys.executable,
@@ -898,11 +927,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 id="native_fuzz",
                 name="native_product_core_fuzz_asan_ubsan",
                 status="skip",
-                detail="GRBL_ROOT unavailable",
+                detail=paper_skip,
             )
         )
 
-    if grbl is not None and native_coverage_runner.is_file():
+    if paper_enabled and native_coverage_runner.is_file():
         code, dur = _run(
             [
                 sys.executable,
@@ -930,7 +959,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 id="native_coverage",
                 name="native_product_core_coverage",
                 status="skip",
-                detail="GRBL_ROOT unavailable",
+                detail=paper_skip,
             )
         )
 
@@ -1250,10 +1279,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
         )
 
-    # wokwi / 可选云启动：失败写入证据，但不阻断 host SIL overall
-    # （fidelity=optional_chip_board_sim_not_product_gate；无 token 时本层为 skip）
-    _soft_fail_ids = {"wokwi_startup"}
-    hard_fail = any(x.status == "fail" and x.id not in _soft_fail_ids for x in layers)
+    # 可选云服务仅启动前连接/鉴权故障不阻断 host SIL；真实固件失败仍阻断。
+    hard_fail = any(x.status == "fail" and x.blocking for x in layers)
     overall = 1 if hard_fail else 0
     return _finish(
         layers, profile, touch, grbl, args.json_out, overall, time.time() - t_all

@@ -14,6 +14,9 @@ GRBL_ROOT = Path(os.environ.get("GRBL_ROOT", "D:/Users/Grbl_Esp32"))
 class TestProtocolDecisionTrace(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        from sim_common.product_profile import identify_product
+        if identify_product(GRBL_ROOT).sku == "nopaper":
+            raise unittest.SkipTest("量产无换纸 SKU 不包含纸路 ProtocolDecisionCore；网络/运动另测")
         cls.report = trace.run_trace(
             [
                 "G0 X1",

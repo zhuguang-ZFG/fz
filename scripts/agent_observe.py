@@ -154,6 +154,8 @@ def _wokwi_startup_findings(report: Any, layer_status: Optional[str]) -> List[Di
     if report.get("status") == "pass":
         startup = report.get("startup") if isinstance(report.get("startup"), dict) else {}
         return [_finding("info", "wokwi_startup", "Wokwi ESP32 startup reached firmware ready marker", detail=f"ready={startup.get('ready_hits', [])}; boots={startup.get('boot_count', 0)}", refs=["results/wokwi/wokwi_smoke_report.json", "results/wokwi/serial.log"])]
+    if report.get("blocking") is False and report.get("cloud_error") in {"unauthorized", "transport"}:
+        return [_finding("soft", "wokwi_startup", "Wokwi cloud unavailable before firmware startup", detail=str(report["cloud_error"]), action="retry chip_sim/run_wokwi_smoke.py; startup not verified", refs=["results/wokwi/wokwi_smoke_report.json"])]
     if report.get("cloud_error") == "unauthorized":
         return [_finding("hard", "wokwi_startup", "Wokwi cloud authentication failed", detail="WOKWI_CLI_TOKEN was rejected before firmware startup", action="refresh the GitHub/user WOKWI_CLI_TOKEN and rerun", refs=["results/wokwi/wokwi_smoke_report.json"])]
     startup = report.get("startup") if isinstance(report.get("startup"), dict) else {}
@@ -189,12 +191,16 @@ def _fail_stems_without_golden() -> List[str]:
 def build_observe() -> Dict[str, Any]:
     gate = _read_json(RESULTS / "agent_gate_last.json") or {}
     gate_layers = {str(layer.get("id")): str(layer.get("status")) for layer in (gate.get("layers") if isinstance(gate, dict) else None) or [] if isinstance(layer, dict)}
+    layer_details = {str(layer.get("id")): layer for layer in gate.get("layers", []) if isinstance(layer, dict)}
     soft = _read_json(FZ_ROOT / "protocol_sim" / "results" / "soft_divergence.json") or {}
     soft_al = _read_json(FZ_ROOT / "protocol_sim" / "results" / "soft_allowlist_last.json") or {}
     golden = _read_json(FZ_ROOT / "protocol_sim" / "results" / "golden_last.json") or {}
     schema = _read_json(FZ_ROOT / "protocol_sim" / "results" / "case_schema_last.json") or {}
     last_proto = _read_json(FZ_ROOT / "protocol_sim" / "results" / "last_report.json")
-    native_cov = _read_json(FZ_ROOT / "native_sim" / "results" / "coverage_summary.json") or {}
+    coverage_layer = layer_details.get("native_coverage", {})
+    # SKU不适用时本轮没有执行覆盖率；缺工具退出2则仍保留改进提示。
+    native_cov = (_read_json(FZ_ROOT / "native_sim" / "results" / "coverage_summary.json") or {}
+                  if coverage_layer.get("status") != "skip" or coverage_layer.get("exit_code") is not None else {})
     paper_interactions = _read_json(FZ_ROOT / "hardware_sim" / "results" / "paper_plant_interactions.json") or {}
     paper_contract = _read_json(FZ_ROOT / "hardware_sim" / "results" / "paper_firmware_contract.json") or {}
     machine_pin_erc = _read_json(FZ_ROOT / "hardware_sim" / "results" / "machine_pin_erc.json") or {}
@@ -220,11 +226,12 @@ def build_observe() -> Dict[str, Any]:
             continue
         findings.append(
             _finding(
-                "hard",
+                "hard" if L.get("blocking", True) else "soft",
                 "layer_fail",
                 f"layer {L.get('id')} failed",
                 detail=str(L.get("detail") or L.get("name") or ""),
-                action="python scripts/sim_rerun.py --from-last",
+                action=("python scripts/sim_rerun.py --from-last" if L.get("id") in {"protocol", "hardware"}
+                        else "python scripts/agent_gate.py --profile standard"),
                 refs=[str(L.get("log_hint") or ""), str(RESULTS / "triage_last.md")],
             )
         )
@@ -232,7 +239,7 @@ def build_observe() -> Dict[str, Any]:
     paper_interaction_finding = _paper_interaction_finding(paper_interactions)
     if paper_interaction_finding is not None:
         findings.append(paper_interaction_finding)
-    paper_contract_finding = _paper_contract_finding(paper_contract)
+    paper_contract_finding = _paper_contract_finding(paper_contract) if gate_layers.get("paper_contract") != "skip" else None
     if paper_contract_finding is not None:
         findings.append(paper_contract_finding)
     paper_transient_finding = _paper_transient_finding(paper_transients)
@@ -257,23 +264,8 @@ def build_observe() -> Dict[str, Any]:
             )
         )
 
-    # Stale-evidence guard: quick profiles skip the hardware layer, but
-    # last_hw_report.json (and triage built from it) survives from earlier
-    # runs — an old red case would otherwise block done-claims forever
-    # (seen 2026-07-20: json_feed_hold_tcp red from a stale report while a
-    # fresh rerun passed).
-    _hw_stale = False
-    if gate_layers.get("hardware") == "skip":
-        try:
-            _hw_path = FZ_ROOT / "hardware_sim" / "results" / "last_hw_report.json"
-            _gate_path = RESULTS / "agent_gate_last.json"
-            _hw_stale = (
-                _hw_path.is_file()
-                and _gate_path.is_file()
-                and _hw_path.stat().st_mtime < _gate_path.stat().st_mtime - 60
-            )
-        except OSError:
-            _hw_stale = False
+    # 跳过的层没有本轮结果，即使旧失败刚发生也不能伪装成本轮失败。
+    _hw_stale = gate_layers.get("hardware") == "skip"
 
     for c in (triage.get("hardware_failures") if isinstance(triage, dict) else None) or []:
         if not isinstance(c, dict):
@@ -283,7 +275,7 @@ def build_observe() -> Dict[str, Any]:
                 "info" if _hw_stale else "hard",
                 "hardware_case",
                 (
-                    f"stale hardware failure (predates this gate run, layer skipped): {c.get('name')}"
+                    f"hardware failure from a separate run (layer skipped): {c.get('name')}"
                     if _hw_stale
                     else f"hardware case failed: {c.get('name')}"
                 ),
@@ -710,7 +702,7 @@ def build_observe() -> Dict[str, Any]:
     # ranked next actions
     next_actions: List[str] = []
     for f in findings:
-        if f["severity"] == "hard" and f.get("action"):
+        if f["severity"] == "hard" and f.get("action") and f["action"] not in next_actions:
             next_actions.append(f["action"])
     for f in findings:
         if f["severity"] == "soft" and f.get("action") and f["action"] not in next_actions:

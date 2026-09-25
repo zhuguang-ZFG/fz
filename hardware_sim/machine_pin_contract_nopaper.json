@@ -1,0 +1,43 @@
+{
+  "version": 2,
+  "machine": "Grbl_Esp32/src/Machines/custom_3axis_hr4988.h",
+  "i2so_width": 8,
+  "roles": {
+    "X_STEP_PIN": {
+      "endpoint": "GPIO27",
+      "direction": "output"
+    },
+    "X_DIRECTION_PIN": {
+      "endpoint": "GPIO26",
+      "direction": "output"
+    },
+    "Y_STEP_PIN": {
+      "endpoint": "GPIO33",
+      "direction": "output"
+    },
+    "Y_DIRECTION_PIN": {
+      "endpoint": "GPIO32",
+      "direction": "output"
+    },
+    "Z_STEP_PIN": {
+      "endpoint": "GPIO14",
+      "direction": "output"
+    },
+    "Z_DIRECTION_PIN": {
+      "endpoint": "GPIO12",
+      "direction": "output"
+    },
+    "STEPPERS_DISABLE_PIN": {
+      "endpoint": "GPIO25",
+      "direction": "output"
+    }
+  },
+  "aliases": {},
+  "strapping_output_waivers": {
+    "Z_DIRECTION_PIN": {
+      "endpoint": "GPIO12",
+      "reason": "量产分支既有引脚；按源码核对，仅豁免已知启动绑带分配，电平与上电可靠性仍须实机验证。"
+    }
+  },
+  "evidence_boundary": "量产无自动换纸分支 5b7e3bc 源码引脚契约；不证明实物接线、电气或运动/HIL。"
+}

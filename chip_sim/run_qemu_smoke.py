@@ -222,8 +222,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         action="store_true",
         help=(
             "fail unless the guest answers $I/$$ (use with the BT-free "
-            "[env:qemu] image; panic exemption then only covers boots that "
-            "eventually prove protocol aliveness)"
+            "image; known panics remain failures)"
         ),
     )
     args = ap.parse_args(argv)
@@ -389,14 +388,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
     )
 
-    # Protocol smoke: count Grbl protocol responses. "ok" is matched loosely
-    # (\bok\b); only used as responded=any(>0), not as an exact reply count.
+    # 普通日志里的ok不能证明命令有应答；要求独立版本帧和完整确认行。
     protocol_hits = {
-        "[VER:": len(re.findall(r"\[VER:", text)),
-        "[PARAM": len(re.findall(r"\[PARAM", text)),
-        "ok": len(re.findall(r"\bok\b", text)),
+        "[VER:": len(re.findall(r"(?m)^\[VER:[^\r\n]+\]\r?$", text)),
+        "[PARAM": len(re.findall(r"(?m)^\[PARAM[^\r\n]*\]\r?$", text)),
+        "ok": len(re.findall(r"(?m)^ok\r?$", text)),
     }
-    protocol_responded = any(v > 0 for v in protocol_hits.values())
+    protocol_responded = protocol_hits["[VER:"] > 0 and protocol_hits["ok"] > 0
 
     # Startup oracle
     ready_markers = args.ready_markers or ["Grbl"]
@@ -415,7 +413,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         b, e = banner_machine.lower(), expected_machine.lower()
         machine_mismatch = e not in b and b not in e
 
-    # Panic fingerprint baseline: known-in-QEMU panics are exempt, new ones red
+    # 历史指纹仅用于定位差异；已知崩溃同样不能作为启动通过。
     fps = panic_fingerprints(text)
     allowed_fps = load_panic_baseline()
     new_fps = [f for f in fps if f not in allowed_fps]
@@ -450,33 +448,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     elif args.require_protocol and not protocol_responded:
         print(
             "FAIL: --require-protocol but guest never answered $I/$$ "
-            f"(hits={protocol_hits}); with the BT-free [env:qemu] image this "
-            "is a firmware liveness regression, not a QEMU limitation"
+            f"(hits={protocol_hits}); startup liveness not established"
         )
         exit_code = 1
     elif oracle_verdict["status"] == "fail":
-        fatal_kinds = {e["kind"] for e in oracle_verdict.get("fatal_events", [])}
-        panic_kinds = {"guru_meditation", "panic"}
-        # Exemption applies only when every fatal is panic-family (or the
-        # restart/ready markers a panic-loop produces): brownout, watchdog,
-        # radio/filesystem/task failures are real anomalies and must fail.
-        exemptable = panic_kinds | {"restart_loop", "ready_timeout"}
-        has_panic = bool(fatal_kinds & panic_kinds)
-        if new_fps:
-            print(
-                f"FAIL: new panic fingerprint(s) not in baseline: {new_fps} "
-                f"(baseline: {PANIC_BASELINE.name})"
-            )
-            exit_code = 1
-        elif has_panic and fatal_kinds <= exemptable:
-            print(
-                "PASS (experimental): ROM boot ok, startup oracle reports "
-                "fail with baseline-known panic exemption"
-            )
-            exit_code = 0
-        else:
-            print(f"FAIL: startup oracle fatal events: {sorted(fatal_kinds)}")
-            exit_code = 1
+        fatal_kinds = {event["kind"] for event in oracle_verdict.get("fatal_events", [])}
+        print(f"FAIL: startup oracle fatal events: {sorted(fatal_kinds)}; new fingerprints={new_fps}")
+        exit_code = 1
     else:
         # Oracle pass
         if new_fps:
@@ -528,7 +506,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             "match": (not machine_mismatch) if (banner_machine and expected_machine) else None,
         },
         "panic_fingerprints": fps,
-        "panic_baseline_allowed": allowed_fps,
+        "panic_baseline_known": allowed_fps,
+        "panic_exemptions_applied": False,
         "new_panic_fingerprints": new_fps,
         "timeout_s": args.timeout,
         "uart_bytes": len(text.encode("utf-8", errors="replace")),

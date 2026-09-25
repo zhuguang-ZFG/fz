@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,23 +36,28 @@ def run_campaign(grbl_root: Path, contract_path: Path = DEFAULT_CONTRACT) -> Dic
         cases.append({"name": name, "expected": expected_kind or "pass", "passed": passed, "observed_error_kinds": kinds, "errors": report.get("errors", [])[:3]})
 
     record("valid_baseline", validate_contract(copy.deepcopy(contract), grbl_root), None)
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        record("output_on_input_only_gpio", validate_contract(copy.deepcopy(contract), _mutated_root(source, "#define X_STEP_PIN              GPIO_NUM_2", "#define X_STEP_PIN              GPIO_NUM_34", root)), "input_only_output")
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        record("physical_pin_collision", validate_contract(copy.deepcopy(contract), _mutated_root(source, "#define Y_STEP_PIN              GPIO_NUM_13", "#define Y_STEP_PIN              GPIO_NUM_14", root)), "pin_collision")
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        record("uncontracted_safety_pin", validate_contract(copy.deepcopy(contract), _mutated_root(source, "#define X_STEP_PIN              GPIO_NUM_2", "#define X_STEP_PIN              GPIO_NUM_2\n#define NEW_SAFETY_OUTPUT_PIN GPIO_NUM_22", root)), "uncontracted_pin_macro")
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        record("invalid_gpio_number", validate_contract(copy.deepcopy(contract), _mutated_root(source, "#define X_STEP_PIN              GPIO_NUM_2", "#define X_STEP_PIN              GPIO_NUM_40", root)), "invalid_gpio")
-    narrow = copy.deepcopy(contract)
-    narrow["i2so_width"] = 7
-    record("i2s_expander_overflow", validate_contract(narrow, grbl_root), "i2so_out_of_range")
+    text = source.read_text(encoding="utf-8")
+    def mutate(name, pin, replacement, expected):
+        pattern = r"^#define\s+" + pin + r"\s+[^\n]+"
+        matches = re.findall(pattern, text, re.M)
+        if len(matches) != 1:
+            raise ValueError("引脚变异锚点必须唯一: " + pin)
+        with tempfile.TemporaryDirectory() as directory:
+            changed = _mutated_root(source, matches[0], replacement, Path(directory))
+            record(name, validate_contract(copy.deepcopy(contract), changed), expected)
+    mutate("output_on_input_only_gpio", "X_STEP_PIN", "#define X_STEP_PIN GPIO_NUM_34", "input_only_output")
+    x_pin = contract["roles"]["X_STEP_PIN"]["endpoint"].replace("GPIO", "GPIO_NUM_")
+    mutate("physical_pin_collision", "Y_STEP_PIN", "#define Y_STEP_PIN " + x_pin, "pin_collision")
+    mutate("uncontracted_safety_pin", "X_STEP_PIN", "#define X_STEP_PIN " + x_pin + "\n#define NEW_SAFETY_OUTPUT_PIN GPIO_NUM_22", "uncontracted_pin_macro")
+    mutate("invalid_gpio_number", "X_STEP_PIN", "#define X_STEP_PIN GPIO_NUM_40", "invalid_gpio")
+    if any(rule["endpoint"].startswith("I2SO") for rule in contract["roles"].values()):
+        narrow = copy.deepcopy(contract)
+        narrow["i2so_width"] = 7
+        record("i2s_expander_overflow", validate_contract(narrow, grbl_root), "i2so_out_of_range")
+    else:
+        mutate("flash_reserved_output", "X_STEP_PIN", "#define X_STEP_PIN GPIO_NUM_6", "flash_reserved_gpio")
     unwaived = copy.deepcopy(contract)
-    del unwaived["strapping_output_waivers"]["X_STEP_PIN"]
+    unwaived["strapping_output_waivers"].clear()
     record("unreviewed_boot_strapping_output", validate_contract(unwaived, grbl_root), "strapping_output")
 
     failures = [case for case in cases if not case["passed"]]

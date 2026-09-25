@@ -1,0 +1,17 @@
+--target=x86_64-w64-mingw32
+-std=c++17
+-Wall
+-Wextra
+-fno-omit-frame-pointer
+-isystem
+D:/zhugu-home/mingw64/mingw64/lib/gcc/x86_64-w64-mingw32/16.1.0/include
+-isystem
+D:/zhugu-home/mingw64/mingw64/lib/gcc/x86_64-w64-mingw32/16.1.0/include-fixed
+-isystem
+D:/zhugu-home/mingw64/mingw64/lib/gcc/x86_64-w64-mingw32/16.1.0/include/c++
+-isystem
+D:/zhugu-home/mingw64/mingw64/lib/gcc/x86_64-w64-mingw32/16.1.0/include/c++/x86_64-w64-mingw32
+-isystem
+D:/zhugu-home/mingw64/mingw64/x86_64-w64-mingw32/include
+-iquote
+D:/Users/Grbl_Esp32/Grbl_Esp32/src

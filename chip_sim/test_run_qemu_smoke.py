@@ -166,10 +166,22 @@ class TestExitCodeMatrix(unittest.TestCase):
         code = self._run_with_uart(_SAMPLE_BOOT_TEXT)
         self.assertEqual(code, 0)
 
-    def test_panic_restart_loop_exempt_exit_0(self) -> None:
-        """restart_loop driven by visible panics → experimental pass (exit 0)."""
+    def test_panic_restart_loop_is_failure(self) -> None:
+        """启动阶段崩溃不能因属于实验性模拟而判绿。"""
         code = self._run_with_uart(_SAMPLE_PANIC_TEXT)
-        self.assertEqual(code, 0)
+        self.assertEqual(code, 1)
+
+    def test_known_panic_after_protocol_response_is_still_failure(self):
+        text = _SAMPLE_BOOT_TEXT + _SAMPLE_RESPONSE_TEXT + "Guru Meditation Error: Core 1 panic'ed (Unhandled debug exception)\n"
+        self.assertEqual(self._run_with_uart(text, ["--require-protocol"]), 1)
+
+    def test_log_ok_is_not_a_protocol_response(self):
+        for text in ("[MSG:WiFi init ok]\n", "[VER:1.3a]\n", "ok\n"):
+            with self.subTest(text=text):
+                self.assertEqual(self._run_with_uart(_SAMPLE_BOOT_TEXT + text, ["--require-protocol"]), 1)
+
+    def test_real_version_and_ack_satisfy_protocol_requirement(self):
+        self.assertEqual(self._run_with_uart(_SAMPLE_BOOT_TEXT + _SAMPLE_RESPONSE_TEXT, ["--require-protocol"]), 0)
 
     def test_restart_loop_without_panic_exit_1(self) -> None:
         """Silent restart loop (no panic markers) → exit 1."""

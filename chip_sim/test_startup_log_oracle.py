@@ -38,6 +38,8 @@ class TestStartupLogOracle(unittest.TestCase):
         self.assertEqual(classify_cloud_error(1, "", "API Error: Unauthorized"), "unauthorized")
         self.assertEqual(classify_cloud_error(42, "", ""), "timeout")
         self.assertIsNone(classify_cloud_error(1, "simulation failed", ""))
+        self.assertEqual(classify_cloud_error(1, "", "Client network socket disconnected before secure TLS connection was established"), "transport")
+        self.assertEqual(classify_cloud_error(1, "", "Connection to transport closed unexpectedly: code 1006"), "transport")
 
 
 if __name__ == "__main__":
