@@ -73,7 +73,8 @@ def _parse_allowlist_lite(text: str) -> dict:
             if cur:
                 entries.append(cur)
             m = re.search(r"match:\s*(\S+)", line)
-            cur = {"match": m.group(1) if m else "", "max_err_ratio": 1.0}
+            # 不预置 1.0：显式 max_err_ratio: 0 必须能表达零容忍，缺省由 _max_err_ratio 兜底。
+            cur = {"match": m.group(1) if m else ""}
         elif cur is not None and "max_err_ratio:" in line:
             cur["max_err_ratio"] = float(line.split(":", 1)[1].strip())
         elif cur is not None and "notes:" in line:
@@ -91,14 +92,32 @@ def _norm_name(name: str) -> str:
 
 
 def _find_entry(name: str, entries: List[dict]) -> Optional[dict]:
+    """精确匹配：归一化全名或去扩展名的 stem 相等。
+
+    此前用 `m in n or n in m` 双向子串——任意一条宽 entry（如 match: 'test'）
+    即可豁免全部 unknown high，是机制级放宽通道。要覆盖一族样本请逐条登记。
+    """
     n = _norm_name(name)
+    stem = Path(n).stem
     for e in entries:
-        m = str(e.get("match") or "").lower()
+        m = str(e.get("match") or "").lower().strip()
         if not m:
             continue
-        if m in n or n in m or Path(n).stem == m:
+        m = m.replace("\\", "/")
+        if n == m or stem == m or stem == Path(m).stem:
             return e
     return None
+
+
+def _max_err_ratio(entry: dict) -> float:
+    """显式 0 必须保持 0（零容忍）；`or 1.0` 会把它读成 1.0 = 全放行。"""
+    raw = entry.get("max_err_ratio")
+    if raw is None:
+        return 1.0
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 1.0
 
 
 def _ratio(ok: int, err: int) -> float:
@@ -142,22 +161,28 @@ def check_divergence(div: dict, allow: dict) -> Dict[str, Any]:
         if entry is None:
             unknown.append(rec)
             continue
-        max_r = float(entry.get("max_err_ratio") or 1.0)
+        max_r = _max_err_ratio(entry)
         if r > max_r + 1e-9:
             rec["max_err_ratio"] = max_r
             over.append(rec)
         else:
             allowed.append(rec)
 
-    # high names with no file row
+    # high names with no file row：仍须过 ratio 闸，不能因为缺行就免检。
     for h in high:
         if not any(_norm_name(h) == _norm_name(x.get("name") or "") for x in files):
             entry = _find_entry(h, entries)
             rec = {"name": h, "ok_lines": 0, "err_lines": 0, "err_ratio": 1.0, "is_high": True}
             if entry is None:
                 unknown.append(rec)
+                continue
+            max_r = _max_err_ratio(entry)
+            rec = {**rec, "allow_match": entry.get("match")}
+            if 1.0 > max_r + 1e-9:
+                over.append({**rec, "max_err_ratio": max_r,
+                             "detail": "no file row: 无逐行证据按完全分歧计"})
             else:
-                allowed.append({**rec, "allow_match": entry.get("match")})
+                allowed.append(rec)
 
     passed = len(unknown) == 0 and len(over) == 0
     return {

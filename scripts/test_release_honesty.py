@@ -108,5 +108,110 @@ class TestReleaseHonesty(unittest.TestCase):
             else:
                 gate_path.unlink(missing_ok=True)
 
+class TestCodeIdentityBinding(unittest.TestCase):
+    """必修#2：门禁报告必须绑在代码版本上，mtime 窗口挡不住「代码已变」的旧 pass。"""
+
+    def _load(self):
+        import importlib.util
+
+        path = FZ / "scripts" / "release_honesty.py"
+        spec = importlib.util.spec_from_file_location("release_honesty_mod", path)
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_sha_mismatch_blocks(self) -> None:
+        rh = self._load()
+        gate = {"code_identity": {"fz": {"sha": "a" * 40, "dirty": False},
+                                  "grbl": {"sha": "b" * 40, "dirty": False}}}
+        found = rh.check_code_identity(gate, {"fz": "c" * 40, "grbl": "b" * 40})
+        self.assertTrue(any("代码已变动" in b for b in found["blockers"]), found)
+
+    def test_matching_sha_passes(self) -> None:
+        rh = self._load()
+        gate = {"code_identity": {"fz": {"sha": "a" * 40, "dirty": False},
+                                  "grbl": {"sha": "b" * 40, "dirty": False}}}
+        found = rh.check_code_identity(gate, {"fz": "a" * 40, "grbl": "b" * 40})
+        self.assertEqual(found["blockers"], [])
+
+    def test_legacy_report_without_identity_blocks(self) -> None:
+        rh = self._load()
+        found = rh.check_code_identity({"overall_status": "pass"}, {"fz": "a" * 40, "grbl": None})
+        self.assertTrue(any("code_identity" in b for b in found["blockers"]), found)
+
+    def test_dirty_tree_blocks_only_on_explicit_sign_off(self) -> None:
+        rh = self._load()
+        gate = {"code_identity": {"fz": {"sha": "a" * 40, "dirty": True}, "grbl": {}}}
+        dev = rh.check_code_identity(gate, {"fz": "a" * 40, "grbl": None})
+        self.assertEqual(dev["blockers"], [])
+        self.assertTrue(any("脏" in w for w in dev["warnings"]), dev)
+        sign = rh.check_code_identity(gate, {"fz": "a" * 40, "grbl": None}, sign_off=True)
+        self.assertTrue(any("脏" in b for b in sign["blockers"]), sign)
+
+    def test_scope_declared_sha_must_match_report(self) -> None:
+        rh = self._load()
+        gate = {"code_identity": {"fz": {"sha": "a" * 40, "dirty": False},
+                                  "grbl": {"sha": "b" * 40, "dirty": False}}}
+        scope = 'grbl_git_sha: "deadbeef"\n'
+        found = rh.check_code_identity(
+            gate, {"fz": "a" * 40, "grbl": "b" * 40}, scope_raw=scope
+        )
+        self.assertTrue(any("scope 声明" in b for b in found["blockers"]), found)
+        ok = rh.check_code_identity(
+            gate, {"fz": "a" * 40, "grbl": "b" * 40}, scope_raw=f"grbl_git_sha: {'b' * 12}\n"
+        )
+        self.assertEqual(ok["blockers"], [])
+
+    def test_end_to_end_mismatched_report_is_blocked(self) -> None:
+        """整链：伪造一份 sha 不符的新鲜 pass 报告，--require-agent-gate 必须判 blocked。"""
+        gate_path = FZ / "results" / "agent_gate_last.json"
+        backup = gate_path.read_bytes() if gate_path.is_file() else None
+        try:
+            gate_path.parent.mkdir(parents=True, exist_ok=True)
+            gate_path.write_text(
+                json.dumps(
+                    {
+                        "overall_status": "pass",
+                        "profile": "standard",
+                        "generated_at": "2026-09-27T00:00:00+00:00",
+                        "run_id": "deadbeef",
+                        "code_identity": {
+                            "fz": {"sha": "0" * 40, "branch": "main", "dirty": False},
+                            "grbl": {"sha": None, "branch": None, "dirty": None},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            r = subprocess.run(
+                [
+                    sys.executable,
+                    str(FZ / "scripts" / "release_honesty.py"),
+                    "--require-agent-gate",
+                    "--allow-pending-hil",
+                    "--max-age-hours",
+                    "99999",
+                ],
+                cwd=str(FZ),
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(r.returncode, 1, msg=r.stdout + r.stderr)
+            data = json.loads(
+                (FZ / "results" / "release_honesty_last.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(data["verdict"], "blocked")
+            self.assertFalse(data["code_identity_ok"])
+            self.assertTrue(
+                any("代码已变动" in b for b in data["blockers"]), msg=str(data["blockers"])
+            )
+        finally:
+            if backup is not None:
+                gate_path.write_bytes(backup)
+            else:
+                gate_path.unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -35,6 +35,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from firmware_freshness import is_firmware_stale
+from firmware_freshness import newest_source_mtime as _newest_source_mtime
 from startup_log_oracle import analyze_startup_log
 
 
@@ -48,6 +50,31 @@ MACHINE_BANNER_RE = re.compile(r"\[MSG:Using machine:([^\]]+)\]")
 # assertion "..." failed: file ".../bt/bt.c", line 1134, function: esp_bt_controller_init
 ASSERT_PANIC_RE = re.compile(r'assertion "[^"]*" failed: file "([^"]+)", line (\d+)')
 GURU_PANIC_RE = re.compile(r"Guru Meditation Error: Core\s+\d+ panic'ed \(([^)]+)\)")
+
+
+def radio_off_fixture_ok(flash: Path, sidecar: Dict[str, Any]) -> bool:
+    """flash 当前内容是否真带着钉死的 radio-off NVS 夹具。
+
+    三重判据：sidecar 声明 radio_off=true 且 SHA 等于钉死常量（自造 NVS
+    即使 sidecar 自称 radio_off 也不放行），并且 flash 对应分区区域的
+    实际 SHA-256 与钉死常量逐位一致。
+    """
+    from radio_off_fixture import RADIO_OFF_NVS_SHA256
+
+    nvs = sidecar.get("nvs") if isinstance(sidecar, dict) else None
+    if not isinstance(nvs, dict) or nvs.get("radio_off") is not True:
+        return False
+    if nvs.get("sha256") != RADIO_OFF_NVS_SHA256:
+        return False
+    try:
+        offset = int(str(nvs.get("offset")), 16)
+        size = int(nvs.get("bytes"))
+        region = flash.read_bytes()[offset : offset + size]
+    except (OSError, TypeError, ValueError):
+        return False
+    if len(region) != size:
+        return False
+    return hashlib.sha256(region).hexdigest() == RADIO_OFF_NVS_SHA256
 
 
 def expected_machine_name(grbl_root: Path) -> Optional[str]:
@@ -93,17 +120,12 @@ def load_panic_baseline() -> List[str]:
 
 
 def newest_source_mtime(grbl_root: Path) -> Optional[float]:
-    """Newest firmware source mtime — detects builds older than the code."""
-    newest: Optional[float] = None
-    try:
-        for p in (grbl_root / "Grbl_Esp32" / "src").rglob("*"):
-            if p.suffix.lower() in (".h", ".hpp", ".c", ".cpp", ".ino"):
-                m = p.stat().st_mtime
-                if newest is None or m > newest:
-                    newest = m
-    except OSError:
-        return None
-    return newest
+    """Newest firmware source mtime — detects builds older than the code.
+
+    共享实现见 chip_sim/firmware_freshness.py（Wokwi 侧与门禁同口径）；
+    此处保留名字供既有调用方/测试导入。
+    """
+    return _newest_source_mtime(grbl_root)
 
 
 def _sha256(path: Path) -> Optional[str]:
@@ -249,6 +271,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
         return 2
 
+    # 豁免绑定：只有 flash 里真带着钉死的 radio-off 夹具（sidecar 声明 +
+    # 区域 SHA 复核一致），QEMU 首轮 Guru 豁免才开启。必须在跑 QEMU 之前
+    # 判定——guest 首启会写回 NVS 扇区，事后复核会被自己的写回污染。
+    flash_sidecar: Dict[str, Any] = {}
+    try:
+        flash_sidecar = json.loads(flash.with_suffix(".json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    radio_off_fixture = radio_off_fixture_ok(flash, flash_sidecar)
     RESULTS.mkdir(parents=True, exist_ok=True)
     log_path = args.out or (RESULTS / "qemu_smoke_uart.log")
     if not log_path.is_absolute():
@@ -396,9 +427,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     }
     protocol_responded = protocol_hits["[VER:"] > 0 and protocol_hits["ok"] > 0
 
-    # Startup oracle
+    # Startup oracle（radio-off 夹具镜像才豁免 QEMU 首轮一次性 IPC Guru）
     ready_markers = args.ready_markers or ["Grbl"]
-    oracle_verdict = analyze_startup_log(text, ready_markers=ready_markers, max_boots=2)
+    oracle_verdict = analyze_startup_log(
+        text,
+        ready_markers=ready_markers,
+        max_boots=2,
+        qemu_ipc_guru_exemption=radio_off_fixture,
+    )
 
     # Firmware machine identity: banner vs current source tree selection
     banner_m = MACHINE_BANNER_RE.search(text)
@@ -466,15 +502,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("PASS (experimental): boot ok, no protocol response")
         exit_code = 0 if not new_fps else 1
 
-    # ---------- report ----------
-    flash_sidecar: Dict[str, Any] = {}
-    try:
-        flash_sidecar = json.loads(flash.with_suffix(".json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        pass
+    # ---------- report ----------（flash_sidecar 已在跑 QEMU 前读取，见上）
     # Build staleness: identity check catches wrong-machine images, this
     # catches right-machine-but-older-than-source images (evidence about
-    # code that has since changed). Warning only — rebuilds may lag on purpose.
+    # code that has since changed). agent_gate 据此判 chip 层非 pass——
+    # 本脚本退出码不变，便于手动排查，但门禁不再把它当可忽略 WARN。
     firmware_stale: Optional[bool] = None
     if args.grbl_root:
         app_seg = next(
@@ -482,15 +514,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             None,
         )
         fw_mtime = (app_seg or {}).get("mtime")
-        src_mtime = newest_source_mtime(args.grbl_root)
-        if isinstance(fw_mtime, (int, float)) and src_mtime is not None:
-            firmware_stale = fw_mtime < src_mtime
-            if firmware_stale:
-                print(
-                    "WARN: firmware image is older than the newest source file "
-                    "under GRBL_ROOT src/ — evidence may describe stale code. "
-                    "Rebuild: pio run -e qemu (or release) then build_flash_image.py"
-                )
+        firmware_stale = is_firmware_stale(fw_mtime, args.grbl_root)
+        if firmware_stale:
+            print(
+                "STALE: firmware image is older than the newest source file "
+                "under GRBL_ROOT src/ — startup evidence describes stale code; "
+                "agent_gate will fail this layer. "
+                "Rebuild: pio run -e release then build_flash_image.py"
+            )
     report = {
         "suite": "qemu_smoke",
         "fidelity": "experimental_chip_sil_not_product_gate",
@@ -498,6 +529,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "package_root": str(pkg),
         "flash": str(flash),
         "flash_sha256": _sha256(flash),
+        "sim_radio_off_fixture": radio_off_fixture,
         "flash_segments": flash_sidecar.get("segments"),
         "firmware_stale_vs_source": firmware_stale,
         "machine_identity": {
@@ -506,8 +538,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             "match": (not machine_mismatch) if (banner_machine and expected_machine) else None,
         },
         "panic_fingerprints": fps,
+        "artifact_exemptions": oracle_verdict.get("artifact_exemptions", []),
         "panic_baseline_known": allowed_fps,
-        "panic_exemptions_applied": False,
+        "panic_exemptions_applied": bool(oracle_verdict.get("artifact_exemptions")),
         "new_panic_fingerprints": new_fps,
         "timeout_s": args.timeout,
         "uart_bytes": len(text.encode("utf-8", errors="replace")),

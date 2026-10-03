@@ -1,6 +1,7 @@
 # R24/R42: machine-check soft stream divergence allowlist
 # high_divergence from soft_divergence.json is OK only if matched here.
 # Policy: docs/PRODUCT_SOFT_DIVERGENCE.md (strategy A/C — do not gut product features for sim)
+# match 为精确匹配（归一化全名或去扩展名 stem），不做子串——要覆盖一族样本请逐条登记。
 version: 1
 high_ratio_threshold: 0.5
 policy_doc: docs/PRODUCT_SOFT_DIVERGENCE.md
@@ -20,9 +21,9 @@ entries:
   - match: spindle_testing
     max_err_ratio: 0.8
     notes: "product spindle sample; optional comment noise"
-  - match: spindle_cam
+  - match: spindle_cam_subset
     max_err_ratio: 0.5
-    notes: "soft spindle_cam_subset should stay low divergence"
-  - match: cam_percent
+    notes: "soft spindle_cam_subset should stay low divergence（精确匹配前写作 spindle_cam）"
+  - match: cam_percent_and_space
     max_err_ratio: 0.5
-    notes: "CAM % markers soft stream"
+    notes: "CAM % markers soft stream（精确匹配前写作 cam_percent）"

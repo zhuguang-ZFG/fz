@@ -28,6 +28,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
+from firmware_freshness import is_firmware_stale
 from startup_log_oracle import analyze_startup_log
 
 
@@ -36,10 +37,20 @@ WOKWI_DIR = Path(__file__).resolve().parent / "wokwi"
 RESULTS = FZ_ROOT / "results" / "wokwi"
 
 
+# 启动前就拿不到云资源的故障类别：固件从未被执行，串口必然空白。
+# 与 "timeout" 区分——超时意味着模拟真的跑过，必须阻断。
+PRE_START_CLOUD_ERRORS = {"unauthorized", "transport", "quota"}
+
+
 def classify_cloud_error(exit_code: int, stdout: str, stderr: str) -> Optional[str]:
     cli_text = f"{stdout}\n{stderr}".lower()
     if "unauthorized" in cli_text:
         return "unauthorized"
+    if exit_code != 0 and any(marker in cli_text for marker in (
+        # 实测文本：API Error: You have used up your Free plan monthly CI minute quota
+        "ci minute quota", "used up your free plan", "quota exceeded", "out of ci minutes",
+    )):
+        return "quota"
     if exit_code != 0 and any(marker in cli_text for marker in (
         "before secure tls connection was established", "transport closed unexpectedly",
         "getaddrinfo enotfound", "getaddrinfo eai_again",
@@ -48,6 +59,15 @@ def classify_cloud_error(exit_code: int, stdout: str, stderr: str) -> Optional[s
     if exit_code == 42:
         return "timeout"
     return None
+
+
+def compute_blocking(cloud_error: Optional[str], serial_text: str) -> bool:
+    """只有启动前云资源不可用且串口全空才不阻断 host SIL。
+
+    串口已有输出、固件 panic/重启或模拟超时一律阻断——那是固件证据，
+    不能借云端错误豁免。
+    """
+    return not (cloud_error in PRE_START_CLOUD_ERRORS and not serial_text.strip())
 
 
 def find_wokwi_cli() -> Optional[str]:
@@ -172,6 +192,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         "token_set": bool(token),
         "firmware": str(bin_p) if bin_p else None,
         "elf": str(elf_p) if elf_p else None,
+        # 与 qemu 同口径：镜像旧于源码时启动证据不成立，agent_gate 判该层非 pass。
+        "firmware_stale_vs_source": is_firmware_stale(
+            bin_p.stat().st_mtime if bin_p and bin_p.is_file() else None, args.grbl_root
+        ),
         "claims_forbidden": [
             "paper_path_verified",
             "bt_verified",
@@ -286,10 +310,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     serial_text = serial_log.read_text(encoding="utf-8", errors="replace") if serial_log.is_file() else ""
     startup = analyze_startup_log(serial_text, [args.expect_text] if args.expect_text else [])
     report["startup"] = startup
-    # 只有启动前的鉴权/连接失败属于可选云基础设施不可用；串口已有输出、
+    # 只有启动前的鉴权/连接/配额失败属于可选云基础设施不可用；串口已有输出、
     # 固件 panic、重启或超时不能借网络错误豁免。
-    report["blocking"] = not (report["cloud_error"] in {"unauthorized", "transport"}
-                              and not serial_text.strip())
+    report["blocking"] = compute_blocking(report["cloud_error"], serial_text)
     report["serial_log"] = str(serial_log)
     report["observation_complete"] = proc.returncode == 43
     report["observation_ms"] = args.timeout_ms

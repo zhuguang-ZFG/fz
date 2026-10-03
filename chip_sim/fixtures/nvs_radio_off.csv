@@ -1,0 +1,3 @@
+key,type,encoding,value
+Grbl_ESP32,namespace,,
+Radio/Mode,data,i8,0

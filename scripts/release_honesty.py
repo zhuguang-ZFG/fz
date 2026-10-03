@@ -21,6 +21,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -61,6 +62,88 @@ def _scan_claims(text: str) -> List[str]:
         if rx.search(text or ""):
             hits.append(label)
     return hits
+
+
+def _git_head(repo: Optional[Path]) -> Optional[str]:
+    if repo is None or not Path(repo).exists():
+        return None
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(repo),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return (r.stdout or "").strip() or None if r.returncode == 0 else None
+
+
+def check_code_identity(
+    gate: Dict[str, Any],
+    current: Dict[str, Optional[str]],
+    scope_raw: str = "",
+    sign_off: bool = False,
+) -> Dict[str, List[str]]:
+    """门禁报告必须绑在当前代码上（必修#2）。
+
+    仅靠文件 mtime 判新鲜度时，代码改过之后窗口内的旧 pass 仍可签核。
+    这里要求报告自带 sha 且与当前 HEAD 相符；scope 若声明了 sha 也一并比对。
+    """
+    blockers: List[str] = []
+    warnings: List[str] = []
+    notes: List[str] = []
+
+    identity = gate.get("code_identity")
+    if not isinstance(identity, dict):
+        blockers.append(
+            "agent_gate report has no code_identity (旧格式) — 无法把 SIL 证据绑到代码版本，"
+            "重跑 agent_gate 生成带 sha 的报告"
+        )
+        return {"blockers": blockers, "warnings": warnings, "notes": notes}
+
+    for repo_key, label in (("fz", "fz"), ("grbl", "GRBL_ROOT")):
+        recorded = (identity.get(repo_key) or {}) if isinstance(identity.get(repo_key), dict) else {}
+        sha = recorded.get("sha")
+        now = current.get(repo_key)
+        if sha is None and now is None:
+            notes.append(f"{label}: 无 git 身份（仓缺失或非 git 树）")
+            continue
+        if sha is None:
+            blockers.append(f"{label}: 门禁报告缺 sha，但当前树有 HEAD {str(now)[:12]} — 重跑门禁")
+            continue
+        if now is None:
+            warnings.append(f"{label}: 当前取不到 HEAD，无法比对报告 sha {sha[:12]}")
+            continue
+        if sha != now:
+            blockers.append(
+                f"{label}: 门禁报告跑在 {sha[:12]}，当前 HEAD 是 {now[:12]} — "
+                "代码已变动，旧 pass 不能用于签核，重跑 agent_gate"
+            )
+            continue
+        notes.append(f"{label}: sha {sha[:12]} 与当前 HEAD 相符")
+        if recorded.get("dirty"):
+            msg = f"{label}: 门禁运行时工作树脏（sha {sha[:12]} 不能完整描述被测代码）"
+            if sign_off:
+                blockers.append(msg)
+            else:
+                warnings.append(msg + " [dev 允许]")
+
+    for key, repo_key in (("fz_git_sha", "fz"), ("grbl_git_sha", "grbl")):
+        m = re.search(rf"^\s*{key}\s*:\s*[\"']?([0-9a-fA-F]{{7,40}})", scope_raw, re.M)
+        if not m:
+            continue
+        declared = m.group(1).lower()
+        recorded = (identity.get(repo_key) or {}).get("sha") or ""
+        if not recorded.lower().startswith(declared) and not declared.startswith(recorded.lower()):
+            blockers.append(
+                f"scope 声明 {key}={declared[:12]}，门禁报告实跑 {recorded[:12] or 'unknown'} — 两者必须一致"
+            )
+        else:
+            notes.append(f"scope {key}={declared[:12]} 与门禁报告相符")
+
+    return {"blockers": blockers, "warnings": warnings, "notes": notes}
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -151,6 +234,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # scope features
     paper = bt = ota = False
+    scope_raw = ""
     scope_path = args.scope
     if scope_path is None:
         # default pre-release-min style: no paper/ota
@@ -159,10 +243,29 @@ def main(argv: Optional[List[str]] = None) -> int:
             scope_path = cand
     if scope_path and scope_path.is_file():
         raw = scope_path.read_text(encoding="utf-8", errors="replace")
+        scope_raw = raw
         paper = bool(re.search(r"paper_path\s*:\s*true", raw, re.I))
         bt = bool(re.search(r"bluetooth\s*:\s*true", raw, re.I))
         ota = bool(re.search(r"^\s*ota\s*:\s*true", raw, re.I | re.M))
         notes.append(f"scope={scope_path.name} paper={paper} bt={bt} ota={ota}")
+
+    # 报告↔代码绑定：mtime 窗口挡不住「代码改了但仍在 24h/168h 内」的旧 pass。
+    identity_blocked = False
+    if gate is not None and (args.require_agent_gate or args.strict or args.scope is not None):
+        grbl_root = os.environ.get("GRBL_ROOT") or gate.get("grbl_root")
+        found = check_code_identity(
+            gate,
+            {
+                "fz": _git_head(FZ_ROOT),
+                "grbl": _git_head(Path(grbl_root)) if grbl_root else None,
+            },
+            scope_raw=scope_raw,
+            sign_off=args.scope is not None,
+        )
+        blockers.extend(found["blockers"])
+        warnings.extend(found["warnings"])
+        notes.extend(found["notes"])
+        identity_blocked = bool(found["blockers"])
 
     def _evidence_ok(path: Optional[Path]) -> bool:
         if path is None:
@@ -231,7 +334,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         blockers.append("forbidden claims in --claims-file: " + ", ".join(claim_hits))
 
     # verdict
-    if not sil_ok or any("agent_gate" in b or "too old" in b for b in blockers):
+    if not sil_ok or identity_blocked or any("agent_gate" in b or "too old" in b for b in blockers):
         verdict = "blocked"
     elif claim_hits:
         verdict = "blocked"
@@ -256,6 +359,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         "verdict": verdict,
         "sil_ok": sil_ok,
         "agent_gate_age_hours": age_h,
+        "agent_gate_run_id": (gate or {}).get("run_id"),
+        "agent_gate_generated_at": (gate or {}).get("generated_at"),
+        "agent_gate_code_identity": (gate or {}).get("code_identity"),
+        "code_identity_ok": (gate is not None and not identity_blocked),
         "hil_required": hil_required,
         "hil_ok": hil_ok,
         "soft_high_divergence": high,

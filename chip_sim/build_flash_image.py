@@ -45,6 +45,23 @@ SIZE_MAP = {
 }
 
 
+def find_nvs_partition(partitions_bin: bytes) -> Optional[Tuple[int, int]]:
+    """从分区表二进制里找第一个 data/nvs 条目，返回 (offset, size)。
+
+    NVS 注入必须落在固件真正读取的分区上；找不到就 fail-closed，
+    不允许按约定俗成的 0x9000 静默猜测（分区表改布局即假注入）。
+    """
+    for entry_off in range(0, len(partitions_bin) - 31, 32):
+        if partitions_bin[entry_off] != 0xAA or partitions_bin[entry_off + 1] != 0x50:
+            break
+        ptype = partitions_bin[entry_off + 2]
+        subtype = partitions_bin[entry_off + 3]
+        offset, size = struct.unpack_from("<II", partitions_bin, entry_off + 4)
+        if ptype == 0x01 and subtype == 0x02:
+            return offset, size
+    return None
+
+
 def find_bootloader(
     pio_packages: Optional[Path] = None,
     *,
@@ -196,6 +213,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         default="release",
         help="PlatformIO env dir under .pio/build to take firmware from (e.g. qemu)",
     )
+    ap.add_argument(
+        "--nvs-fixture",
+        type=Path,
+        default=None,
+        help=(
+            "显式 opt-in：把 NVS 镜像注入分区表声明的 nvs 分区（仿真 radio-off "
+            "夹具走 chip_sim/fixtures/nvs_radio_off.bin）；不传则保持原始擦除态"
+        ),
+    )
     args = ap.parse_args(argv)
 
     grbl = args.grbl_root
@@ -216,6 +242,42 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
 
     assert boot and part and firm
+    nvs_part: Optional[Tuple[int, Path]] = None
+    nvs_sidecar: Optional[Dict[str, Any]] = None
+    if args.nvs_fixture is not None:
+        if not args.nvs_fixture.is_file():
+            print(f"ERROR: --nvs-fixture not found: {args.nvs_fixture}", file=sys.stderr)
+            return 2
+        nvs_entry = find_nvs_partition(Path(part).read_bytes())
+        if nvs_entry is None:
+            print(
+                "ERROR: partition table has no data/nvs entry; refusing to guess the offset",
+                file=sys.stderr,
+            )
+            return 2
+        nvs_off, nvs_size = nvs_entry
+        fixture_bytes = args.nvs_fixture.read_bytes()
+        if len(fixture_bytes) > nvs_size:
+            print(
+                f"ERROR: fixture {len(fixture_bytes)}B exceeds nvs partition {nvs_size}B",
+                file=sys.stderr,
+            )
+            return 2
+        fixture_sha = hashlib.sha256(fixture_bytes).hexdigest()
+        # 只有钉死的 radio-off 夹具才标记 radio_off=true；任意自定义 NVS
+        # 照常注入并记录，但 QEMU Guru 豁免不会为它开启（run_qemu_smoke 复核）。
+        from radio_off_fixture import RADIO_OFF_NVS_LIMITS, RADIO_OFF_NVS_SHA256
+
+        nvs_part = (nvs_off, args.nvs_fixture)
+        nvs_sidecar = {
+            "offset": f"0x{nvs_off:x}",
+            "partition_bytes": nvs_size,
+            "path": str(args.nvs_fixture),
+            "bytes": len(fixture_bytes),
+            "sha256": fixture_sha,
+            "radio_off": fixture_sha == RADIO_OFF_NVS_SHA256,
+            "limits": RADIO_OFF_NVS_LIMITS,
+        }
     fill = SIZE_MAP[args.flash_size]
     out = args.out or (RESULTS / f"flash_image_{args.flash_size.lower()}.bin")
     if not out.is_absolute():
@@ -226,6 +288,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         (DEFAULT_OFFSETS["partitions"], Path(part)),
         (DEFAULT_OFFSETS["app"], Path(firm)),
     ]
+    if nvs_part is not None:
+        parts.append(nvs_part)
 
     method = "pure_python"
     esptool = find_esptool()
@@ -261,6 +325,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             f'-global driver=timer.esp32.timg,property=wdt_disable,value=true'
         ),
     }
+    if nvs_sidecar is not None:
+        meta["nvs"] = nvs_sidecar
     meta_path = out.with_suffix(".json")
     meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(meta, indent=2))

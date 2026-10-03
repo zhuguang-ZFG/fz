@@ -35,9 +35,11 @@ import os
 import subprocess
 import sys
 import time
+import uuid
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
 FZ_ROOT = Path(__file__).resolve().parent.parent
@@ -270,6 +272,95 @@ def _failed_case_names(report_path: Path, limit: int = 8) -> List[str]:
 
 
 
+def _report_mtime(path: Path) -> Optional[float]:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
+def _fresh_chip_report(path: Path, previous_mtime: Optional[float]) -> Optional[Dict[str, Any]]:
+    """只接受本轮重写过的 chip 报告；缺失/未更新/损坏一律返回 None（调用方 fail-closed）。
+
+    用「运行前 mtime 快照是否变化」判本轮，而不是和 time.time() 比——
+    同一时钟刻内写出的文件会被时间比较误判成陈旧。
+    """
+    current = _report_mtime(path)
+    if current is None or (previous_mtime is not None and current == previous_mtime):
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _stale_image_detail(suite: str) -> str:
+    try:
+        from firmware_freshness import stale_detail  # type: ignore[import-untyped]
+
+        return stale_detail(suite)
+    except ImportError:
+        return f"{suite}: 镜像应用段旧于 GRBL_ROOT src/ 最新源码，启动证据不成立"
+
+
+def chip_evidence_verdict(
+    suite: str, exit_code: int, report: Optional[Dict[str, Any]]
+) -> Tuple[str, Optional[bool], Optional[str]]:
+    """chip 启动层的证据判据（qemu/wokwi 共用）。
+
+    返回 (status, blocking_override, detail_override)；override 为 None 时调用方保留自己的取值。
+
+    - 镜像旧于源码 → 判负且阻断：证据描述的是已被改动的代码，这不是云端不可用。
+    - 退出码非 0 → 判负，是否阻断由调用方按云错误分类决定。
+    - 退出码 0 但无本轮报告 → 判负：无法确认镜像新鲜度，不得按退出码记通过。
+    """
+    if report is not None and report.get("firmware_stale_vs_source") is True:
+        return "fail", True, _stale_image_detail(suite)
+    if exit_code != 0:
+        return "fail", None, None
+    if report is None:
+        return "fail", True, (
+            f"本轮 {suite} 报告缺失或陈旧，无法确认镜像新鲜度；不得按退出码记通过"
+        )
+    return "pass", None, None
+
+
+def _git_out(repo: Path, args: List[str]) -> Optional[str]:
+    try:
+        r = subprocess.run(
+            ["git", *args], cwd=str(repo), capture_output=True, text=True, timeout=15
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    return (r.stdout or "").strip()
+
+
+def code_identity(grbl: Optional[Path]) -> Dict[str, Any]:
+    """把报告绑到具体代码版本上。
+
+    没有这块，release_honesty 只能按文件 mtime 判新鲜度——代码改过之后
+    窗口内（默认 24h，发版可放到 168h）的旧 pass 仍可拿来签核。
+    dirty=True 表示该 sha 不能完整描述当时的代码。
+    """
+
+    def _one(repo: Optional[Path]) -> Dict[str, Any]:
+        if repo is None or not Path(repo).exists():
+            return {"sha": None, "branch": None, "dirty": None}
+        sha = _git_out(Path(repo), ["rev-parse", "HEAD"])
+        branch = _git_out(Path(repo), ["rev-parse", "--abbrev-ref", "HEAD"])
+        status = _git_out(Path(repo), ["status", "--porcelain", "--untracked-files=no"])
+        return {
+            "sha": sha,
+            "branch": branch,
+            "dirty": None if status is None else bool(status.strip()),
+        }
+
+    return {"fz": _one(FZ_ROOT), "grbl": _one(grbl)}
+
+
 def run_qemu_layer(grbl: Optional[Path], flash_mode: str, qemu: Optional[Path]) -> Layer:
     layer = Layer(id="qemu_startup", name="espressif_qemu_esp32_startup_uart",
                   status="skip", detail="qemu or firmware unavailable; chip SIL startup not claimed")
@@ -282,6 +373,7 @@ def run_qemu_layer(grbl: Optional[Path], flash_mode: str, qemu: Optional[Path]) 
         sys.executable, str(FZ_ROOT / "chip_sim/build_flash_image.py"),
         "--grbl-root", str(grbl), "--pio-env", "release",
         "--flash-mode", flash_mode, "--out", str(flash),
+        "--nvs-fixture", str(FZ_ROOT / "chip_sim/fixtures/nvs_radio_off.bin"),
     ])
     layer.duration_s = duration
     if code != 0 or not flash.is_file():
@@ -289,16 +381,23 @@ def run_qemu_layer(grbl: Optional[Path], flash_mode: str, qemu: Optional[Path]) 
         layer.exit_code = code or 1
         layer.detail = "release 整片镜像合并失败或未产出；不得使用旧镜像或记成跳过"
         return layer
+    qemu_report_path = RESULTS / "qemu/qemu_smoke_report.json"
+    before = _report_mtime(qemu_report_path)
     code, duration = _run([
         sys.executable, str(FZ_ROOT / "chip_sim/run_qemu_smoke.py"),
         "--flash", str(flash),
         "--timeout", "20", "--grbl-root", str(grbl), "--require-protocol",
     ], timeout_s=90)
     layer.duration_s += duration
-    layer.status = "pass" if code == 0 else "fail"
     layer.exit_code = code
     layer.log_hint = "results/qemu/qemu_smoke_report.json"
     layer.detail = "当前 release 的实验性芯片启动检查；不证明板上、射频或 OTA"
+    # 陈旧镜像假绿通道：身份对了但镜像比源码旧时，启动层证明的是已被改动的代码。
+    report = _fresh_chip_report(qemu_report_path, before)
+    status, _blocking, detail = chip_evidence_verdict("qemu_startup", code, report)
+    layer.status = status
+    if detail:
+        layer.detail = detail
     return layer
 
 
@@ -796,18 +895,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     elif grbl is not None and os.environ.get("WOKWI_CLI_TOKEN") and wokwi_runner.is_file():
         # 总是由本次目标的 release 产物重建，不能复用另一工作树的整片镜像。
         source_flash = RESULTS / "wokwi" / "source_full.bin"
-        code, dur = _run([sys.executable, str(FZ_ROOT / "chip_sim/build_flash_image.py"), "--grbl-root", str(grbl), "--pio-env", "release", "--flash-mode", product.flash_mode, "--out", str(source_flash)])
+        code, dur = _run([sys.executable, str(FZ_ROOT / "chip_sim/build_flash_image.py"), "--grbl-root", str(grbl), "--pio-env", "release", "--flash-mode", product.flash_mode, "--out", str(source_flash), "--nvs-fixture", str(FZ_ROOT / "chip_sim/fixtures/nvs_radio_off.bin")])
         wokwi_blocking = True
+        cloud: Optional[Dict[str, Any]] = None
         if code == 0:
-            wokwi_started = time.time()
+            wokwi_report_path = RESULTS / "wokwi/wokwi_smoke_report.json"
+            wokwi_before = _report_mtime(wokwi_report_path)
             code, dur = _run([sys.executable, str(wokwi_runner), "--grbl-root", str(grbl), "--flash", str(source_flash), "--timeout-ms", "30000", "--expect-text", "['$' for help]", "--require"])
-            cloud_report = RESULTS / "wokwi/wokwi_smoke_report.json"
-            try:
-                if cloud_report.stat().st_mtime >= wokwi_started:
-                    wokwi_blocking = json.loads(cloud_report.read_text(encoding="utf-8")).get("blocking", True) is not False
-            except (OSError, ValueError):
-                pass  # 无本轮证据时保持严格失败。
-        layers.append(Layer(id="wokwi_startup", name="wokwi_cloud_esp32_startup", status="pass" if code == 0 else "fail", exit_code=code, duration_s=dur, log_hint="results/wokwi/wokwi_smoke_report.json", detail="optional cloud startup: ready marker required; panic/watchdog/restart/init failures rejected", blocking=wokwi_blocking))
+            cloud = _fresh_chip_report(wokwi_report_path, wokwi_before)
+            if cloud is not None:  # 无本轮证据时保持严格失败。
+                wokwi_blocking = cloud.get("blocking", True) is not False
+        wokwi_detail = "optional cloud startup: ready marker required; panic/watchdog/restart/init failures rejected"
+        wokwi_status, blocking_override, detail_override = chip_evidence_verdict("wokwi_startup", code, cloud)
+        if blocking_override is not None:
+            wokwi_blocking = blocking_override
+        layers.append(Layer(id="wokwi_startup", name="wokwi_cloud_esp32_startup", status=wokwi_status, exit_code=code, duration_s=dur, log_hint="results/wokwi/wokwi_smoke_report.json", detail=detail_override or wokwi_detail, blocking=wokwi_blocking))
     else:
         layers.append(Layer(id="wokwi_startup", name="wokwi_cloud_esp32_startup", status="skip", detail="WOKWI_CLI_TOKEN or firmware unavailable; cloud initialization not claimed"))
     # --- qemu_startup layer (mirrors wokwi pattern) ---
@@ -1303,6 +1405,10 @@ def _finish(
         "version": 1,
         "fidelity": "host_sil_for_agents_not_product_hil",
         "profile": profile,
+        # 报告身份：时间戳 + run id + 三仓 sha，供 release_honesty 比对当前 HEAD。
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "run_id": uuid.uuid4().hex,
+        "code_identity": code_identity(grbl),
         "overall_exit": overall,
         "overall_status": "pass" if overall == 0 else "fail",
         "duration_s": round(duration_s, 2),

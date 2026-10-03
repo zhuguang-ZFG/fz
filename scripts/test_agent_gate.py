@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from typing import Any
@@ -99,6 +100,103 @@ class TestAgentGateQemuLayer(unittest.TestCase):
                 layer = ag.run_qemu_layer(Path(directory), "dio", Path("qemu"))
             self.assertEqual(layer.status, "fail")
             self.assertEqual(run.call_count, 1)
+
+
+class TestChipEvidenceVerdict(unittest.TestCase):
+    """陈旧镜像假绿通道（必修#1）：镜像旧于源码时 chip 启动层必须判负。"""
+
+    def test_stale_image_fails_and_blocks_even_on_zero_exit(self):
+        from scripts.agent_gate import chip_evidence_verdict
+        for suite in ("qemu_startup", "wokwi_startup"):
+            with self.subTest(suite=suite):
+                status, blocking, detail = chip_evidence_verdict(
+                    suite, 0, {"firmware_stale_vs_source": True}
+                )
+                self.assertEqual(status, "fail")
+                self.assertTrue(blocking)
+                self.assertIn("源码", detail or "")
+
+    def test_fresh_image_with_zero_exit_passes(self):
+        from scripts.agent_gate import chip_evidence_verdict
+        status, blocking, detail = chip_evidence_verdict(
+            "qemu_startup", 0, {"firmware_stale_vs_source": False}
+        )
+        self.assertEqual((status, blocking, detail), ("pass", None, None))
+        # 无法判定（无 GRBL_ROOT 等）不得凭空判负
+        status, _, _ = chip_evidence_verdict("qemu_startup", 0, {"firmware_stale_vs_source": None})
+        self.assertEqual(status, "pass")
+
+    def test_missing_round_report_is_not_a_pass(self):
+        from scripts.agent_gate import chip_evidence_verdict
+        status, blocking, detail = chip_evidence_verdict("wokwi_startup", 0, None)
+        self.assertEqual(status, "fail")
+        self.assertTrue(blocking)
+        self.assertIn("新鲜度", detail or "")
+
+    def test_nonzero_exit_leaves_blocking_to_caller(self):
+        from scripts.agent_gate import chip_evidence_verdict
+        status, blocking, detail = chip_evidence_verdict("wokwi_startup", 1, {"blocking": False})
+        self.assertEqual((status, blocking, detail), ("fail", None, None))
+
+    def test_stale_report_file_is_not_this_round(self):
+        import os
+        import scripts.agent_gate as ag
+        with tempfile.TemporaryDirectory() as directory:
+            rep = Path(directory) / "r.json"
+            rep.write_text(json.dumps({"firmware_stale_vs_source": False}), encoding="utf-8")
+            unchanged = ag._report_mtime(rep)
+            # 运行前后 mtime 没变 = 本轮没重写报告 → 无证据
+            self.assertIsNone(ag._fresh_chip_report(rep, unchanged))
+            # 缺文件 → 无证据
+            self.assertIsNone(ag._fresh_chip_report(Path(directory) / "nope.json", None))
+            # 本轮重写过 → 采信
+            old = (unchanged or time.time()) - 600
+            os.utime(rep, (old, old))
+            self.assertIsNotNone(ag._fresh_chip_report(rep, unchanged))
+
+    def test_qemu_layer_fails_on_stale_image_report(self):
+        import scripts.agent_gate as ag
+        for stale, expected in ((True, "fail"), (False, "pass"), (None, "pass")):
+            with self.subTest(stale=stale), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+
+                def execute(command, **kwargs):
+                    if "--pio-env" in command:
+                        image = Path(command[command.index("--out") + 1])
+                        image.parent.mkdir(parents=True, exist_ok=True)
+                        image.write_bytes(b"current-release")
+                        return 0, 0.1
+                    rep = root / "qemu" / "qemu_smoke_report.json"
+                    rep.parent.mkdir(parents=True, exist_ok=True)
+                    rep.write_text(
+                        json.dumps({"firmware_stale_vs_source": stale}), encoding="utf-8"
+                    )
+                    return 0, 0.2
+
+                with mock.patch.object(ag, "RESULTS", root), mock.patch.object(
+                    ag, "_run", side_effect=execute
+                ):
+                    layer = ag.run_qemu_layer(root, "dio", Path("qemu"))
+                self.assertEqual(layer.status, expected, msg=layer.detail)
+
+    def test_qemu_layer_fails_when_runner_writes_no_report(self):
+        import scripts.agent_gate as ag
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def execute(command, **kwargs):
+                if "--pio-env" in command:
+                    image = Path(command[command.index("--out") + 1])
+                    image.parent.mkdir(parents=True, exist_ok=True)
+                    image.write_bytes(b"current-release")
+                return 0, 0.1
+
+            with mock.patch.object(ag, "RESULTS", root), mock.patch.object(
+                ag, "_run", side_effect=execute
+            ):
+                layer = ag.run_qemu_layer(root, "dio", Path("qemu"))
+            self.assertEqual(layer.status, "fail")
+            self.assertIn("新鲜度", layer.detail)
 
 
 class TestAgentGateFailureHints(unittest.TestCase):

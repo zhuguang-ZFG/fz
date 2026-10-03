@@ -18,11 +18,74 @@ from unittest import mock
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from run_qemu_smoke import find_qemu, package_root_for
+from run_qemu_smoke import find_qemu, package_root_for, radio_off_fixture_ok
 from run_qemu_smoke import main as qemu_main
 
 
 # ---------- find_qemu / package_root_for ----------
+
+
+# ---------- radio-off fixture binding ----------
+
+class TestRadioOffFixtureBinding(unittest.TestCase):
+    """豁免只认「flash 里真带着钉死的 radio-off 夹具」——
+    默认 BT 镜像或任意自定义 NVS 即使日志形状相同也不能被放行
+    （2026-10-03 判别实验裁决）。"""
+
+    FIXTURE = Path(__file__).resolve().parent / "fixtures" / "nvs_radio_off.bin"
+
+    def _flash_with(self, region: bytes) -> Path:
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        flash = Path(td.name) / "flash.bin"
+        flash.write_bytes(b"\xff" * 0x9000 + region + b"\xff" * 0x1000)
+        return flash
+
+    def _sidecar(self, region: bytes, radio_off: bool = True, sha: str = None) -> Dict[str, Any]:
+        import hashlib
+
+        return {
+            "nvs": {
+                "radio_off": radio_off,
+                "offset": "0x9000",
+                "bytes": len(region),
+                "sha256": sha or hashlib.sha256(region).hexdigest(),
+            }
+        }
+
+    def test_pinned_fixture_in_flash_is_accepted(self) -> None:
+        region = self.FIXTURE.read_bytes()
+        flash = self._flash_with(region)
+        self.assertTrue(radio_off_fixture_ok(flash, self._sidecar(region)))
+
+    def test_unpinned_nvs_blob_is_rejected(self) -> None:
+        region = b"\x42" * 0x5000
+        flash = self._flash_with(region)
+        self.assertFalse(radio_off_fixture_ok(flash, self._sidecar(region)))
+
+    def test_default_image_without_nvs_block_is_rejected(self) -> None:
+        region = self.FIXTURE.read_bytes()
+        flash = self._flash_with(region)
+        self.assertFalse(radio_off_fixture_ok(flash, {}))
+        self.assertFalse(radio_off_fixture_ok(flash, {"segments": []}))
+
+    def test_radio_off_false_is_rejected(self) -> None:
+        region = self.FIXTURE.read_bytes()
+        flash = self._flash_with(region)
+        self.assertFalse(
+            radio_off_fixture_ok(flash, self._sidecar(region, radio_off=False))
+        )
+
+    def test_hash_mismatch_between_flash_and_sidecar_is_rejected(self) -> None:
+        region = self.FIXTURE.read_bytes()
+        flash = self._flash_with(b"\x43" * len(region))
+        self.assertFalse(radio_off_fixture_ok(flash, self._sidecar(region)))
+
+    def test_missing_flash_is_rejected(self) -> None:
+        region = self.FIXTURE.read_bytes()
+        self.assertFalse(
+            radio_off_fixture_ok(Path("no/such/flash.bin"), self._sidecar(region))
+        )
 
 class TestFindQemu(unittest.TestCase):
     """Tests for find_qemu on fake directory trees (no real binary)."""
