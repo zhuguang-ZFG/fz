@@ -92,25 +92,47 @@ def golden_from_pass_case(case: dict) -> dict:
 
 
 def _find_source_json(case_name: str) -> Optional[Path]:
-    stem = Path(str(case_name)).stem.lower()
+    def identity(value: Any) -> str:
+        if not isinstance(value, str):
+            return ""
+        name = value.strip().casefold()
+        for suffix in (".json", ".nc"):
+            if name.endswith(suffix):
+                return name[:-len(suffix)]
+        return name
+
+    wanted = identity(case_name)
+    if not wanted:
+        return None
+    matches = set()
     for d in (FAIL_DIR, STATUS_DIR, GOLDEN_DIR):
         if not d.is_dir():
             continue
-        for p in d.glob("*.json"):
-            if p.stem.lower() in stem or stem in p.stem.lower():
-                return p
+        for p in sorted(d.glob("*.json")):
+            filename_matches = identity(p.name) == wanted
             try:
-                jn = json.loads(p.read_text(encoding="utf-8")).get("name") or ""
+                data = json.loads(p.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
-                jn = ""
-            if str(jn).lower() in stem or stem in str(jn).lower():
-                return p
-    return None
+                if filename_matches:
+                    raise ValueError(f"invalid matching source: {p.name}") from None
+                continue
+            if not isinstance(data, dict):
+                if filename_matches:
+                    raise ValueError(f"invalid matching source: {p.name}")
+                continue
+            if filename_matches or identity(data.get("name")) == wanted:
+                matches.add(p)
+    if len(matches) > 1:
+        raise ValueError("ambiguous golden source: " + ", ".join(str(path) for path in sorted(matches)))
+    return next(iter(matches), None)
 
 
 def golden_from_fail_or_status(case: dict) -> dict:
     """Prefer source JSON (keeps setup); else synthesize from last_report lines only."""
-    name = str(case.get("name") or "case")
+    name = case.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("last_report case name must be non-empty")
+    name = name.strip()
     src = _find_source_json(name)
     if src is not None:
         data = json.loads(src.read_text(encoding="utf-8"))
@@ -226,7 +248,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 if kind in ("fail", "golden") or "fail" in kinds or "golden" in kinds:
                     if kind == "fail" and "fail" not in kinds:
                         continue
-                    g = golden_from_fail_or_status(case)
+                    try:
+                        g = golden_from_fail_or_status(case)
+                    except ValueError as error:
+                        print(f"ERROR: {error}", file=sys.stderr)
+                        return 2
                 else:
                     continue
             written.append(write_golden(g, args.out_dir, args.dry_run, args.force))

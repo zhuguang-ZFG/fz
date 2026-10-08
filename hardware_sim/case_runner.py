@@ -38,6 +38,7 @@ expect values: ok | error | alarm | error_or_alarm | status | any
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 from dataclasses import dataclass, field
@@ -96,6 +97,47 @@ def load_case_files(cases_dir: Path) -> List[Path]:
     return sorted(cases_dir.glob("*.json"))
 
 
+def _mpos_assertion(owner: dict) -> Optional[tuple[List[float], float, float]]:
+    if "expect_mpos_delta" not in owner:
+        return None
+    values = owner["expect_mpos_delta"]
+    if (not isinstance(values, list) or len(values) != 3 or
+            any(isinstance(v, bool) or not isinstance(v, (int, float)) or
+                not math.isfinite(float(v)) for v in values)):
+        raise ValueError("expect_mpos_delta须为三个有限数值")
+    eps = owner.get("eps_mm", 0.6)
+    timeout = owner.get("idle_timeout", 30.0)
+    for name, value in (("eps_mm", eps), ("idle_timeout", timeout)):
+        if (isinstance(value, bool) or not isinstance(value, (int, float)) or
+                not math.isfinite(float(value)) or value < 0 or
+                (name == "idle_timeout" and value == 0)):
+            raise ValueError(f"{name}不是有效的有限数值")
+    return [float(v) for v in values], float(eps), float(timeout)
+
+
+def _idle_mpos(client: GrblTcp, timeout: float, responses: List[str]) -> List[float]:
+    # wait_idle可在超时或WPos帧后返回旧MPos；只接受最后一份完整Idle帧里的XYZ。
+    _, received = wait_idle(client, timeout=timeout)
+    responses.extend(received)
+    frames = [line.strip() for line in received if line.strip().startswith("<") and line.strip().endswith(">")]
+    if not frames:
+        raise ValueError("没有新鲜Idle位置报告")
+    fields = frames[-1][1:-1].split("|")
+    positions = [field[5:] for field in fields[1:] if field.startswith("MPos:")]
+    if fields[0] != "Idle" or len(positions) != 1:
+        raise ValueError("没有完整Idle/MPos报告")
+    values = [float(value) for value in positions[0].split(",")]
+    if len(values) != 3 or not all(math.isfinite(value) for value in values):
+        raise ValueError("Idle/MPos必须包含三个有限坐标")
+    return values
+
+
+def _compare_mpos(start: List[float], end: List[float], expected: List[float], eps: float) -> tuple[bool, str]:
+    actual = [end[i] - start[i] for i in range(3)]
+    ok = all(abs(actual[i] - expected[i]) <= eps for i in range(3))
+    return ok, f"mpos_delta expected={expected} actual={actual} eps_mm={eps}"
+
+
 def run_json_case(
     client: GrblTcp,
     path: Path,
@@ -117,6 +159,18 @@ def run_json_case(
         )
 
     all_resp: List[str] = []
+    last_mpos = None
+    steps = data.get("steps") or []
+    try:
+        case_assertion = _mpos_assertion(data)
+        step_assertions = []
+        for step in steps:
+            assertion = _mpos_assertion(step)
+            if assertion is not None and step.get("send") is None:
+                raise ValueError("步级expect_mpos_delta仅支持send步骤")
+            step_assertions.append(assertion)
+    except (ValueError, OverflowError) as error:
+        return CaseResult(cid, False, detail=f"invalid mpos_delta: {error}", source="json")
     if data.get("soft_reset", True):
         all_resp.extend(client.soft_reset())
         client.unlock()
@@ -129,6 +183,13 @@ def run_json_case(
         r = client.send_line(str(line), wait=float(data.get("setup_wait", 1.0)))
         all_resp.extend(r)
 
+    case_start = None
+    if case_assertion is not None:
+        try:
+            case_start = _idle_mpos(client, case_assertion[2], all_resp)
+        except (ValueError, OverflowError) as error:
+            return CaseResult(cid, False, detail=f"mpos_delta start: {error}", responses=all_resp)
+
     # top-level inject list (legacy design) — run before steps if present
     for inj in data.get("inject") or []:
         ok, detail, rr = _do_inject(client, plant, inj)
@@ -136,7 +197,7 @@ def run_json_case(
         if not ok:
             return CaseResult(cid, False, detail=detail, responses=all_resp, source="json")
 
-    for step in data.get("steps") or []:
+    for step_index, step in enumerate(steps):
         # inject-only step
         if "inject" in step and "send" not in step:
             ok, detail, rr = _do_inject(client, plant, step)
@@ -156,6 +217,13 @@ def run_json_case(
         if send is None:
             continue
         wait = float(step.get("wait", 2.0))
+        step_assertion = step_assertions[step_index]
+        step_start = None
+        if step_assertion is not None:
+            try:
+                step_start = _idle_mpos(client, step_assertion[2], all_resp)
+            except (ValueError, OverflowError) as error:
+                return CaseResult(cid, False, detail=f"step {send!r} mpos_delta start: {error}", responses=all_resp)
         before_snap = None
         if step.get("step_window") and step_log:
             before_snap = wait_snapshot_settled(step_log)
@@ -230,18 +298,27 @@ def run_json_case(
                 )
             all_resp.append(f"[step_window mm={actual} steps={dsteps}]")
 
-        if step.get("expect_mpos_delta"):
-            start = step.get("_mpos_start")
-            # capture start at first such need
-            pass
+        if step_assertion is not None:
+            try:
+                last_mpos = _idle_mpos(client, step_assertion[2], all_resp)
+            except (ValueError, OverflowError) as error:
+                return CaseResult(cid, False, detail=f"step {send!r} mpos_delta end: {error}", responses=all_resp)
+            ok, detail = _compare_mpos(step_start, last_mpos, step_assertion[0], step_assertion[1])
+            if not ok:
+                return CaseResult(cid, False, detail=f"step {send!r}: {detail}", mpos=last_mpos, responses=all_resp)
+            all_resp.append(f"[{detail}]")
 
-    # optional final mpos delta for whole case
-    if data.get("expect_mpos_delta"):
-        # re-run style: need start — compute from last wait
-        mpos, rr = wait_idle(client, timeout=5.0)
-        all_resp.extend(rr)
+    if case_assertion is not None:
+        try:
+            last_mpos = _idle_mpos(client, case_assertion[2], all_resp)
+        except (ValueError, OverflowError) as error:
+            return CaseResult(cid, False, detail=f"mpos_delta end: {error}", responses=all_resp)
+        ok, detail = _compare_mpos(case_start, last_mpos, case_assertion[0], case_assertion[1])
+        if not ok:
+            return CaseResult(cid, False, detail=detail, mpos=last_mpos, responses=all_resp)
+        all_resp.append(f"[{detail}]")
 
-    return CaseResult(name=cid, passed=True, detail="", responses=all_resp, source="json")
+    return CaseResult(name=cid, passed=True, detail="", mpos=last_mpos, responses=all_resp, source="json")
 
 
 def _do_inject(

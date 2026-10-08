@@ -25,7 +25,10 @@ def scenario_sequence(data: Dict[str, Any]) -> List[str]:
 
 
 def trace_items(trace: Any) -> List[Dict[str, Any]]:
-    return trace if isinstance(trace, list) else trace["lines"]
+    items = trace if isinstance(trace, list) else trace.get("lines") if isinstance(trace, dict) else None
+    if not isinstance(items, list):
+        raise ValueError("trace必须为列表或包含lines列表的对象")
+    return items
 def run_policy_trace(data: Dict[str, Any], grbl_root: Path) -> List[Dict[str, Any]]:
     import run_product_core_tests as native_tests
     compiler, compiler_kind = native_tests.find_compiler()
@@ -63,7 +66,21 @@ def run_policy_trace(data: Dict[str, Any], grbl_root: Path) -> List[Dict[str, An
 def evaluate(data: Dict[str, Any], trace: Any) -> List[Dict[str, Any]]:
     failures: List[Dict[str, Any]] = []
     sequence = scenario_sequence(data)
-    for index, (expected, actual) in enumerate(zip(data["expect"], trace_items(trace))):
+    expected_items = data["expect"]
+    try:
+        items = trace_items(trace)
+    except ValueError as error:
+        return [{"kind": "trace_shape", "index": 0, "line": "<trace>",
+                 "mismatches": {"trace_shape": {"expected": "list", "actual": str(error)}}}]
+    if len(items) != len(expected_items) or len(sequence) != len(expected_items):
+        return [{"kind": "trace_length", "index": min(len(items), len(expected_items)), "line": "<trace>",
+                 "mismatches": {"trace_length": {"expected": len(expected_items), "actual": len(items)},
+                                "input_length": {"expected": len(expected_items), "actual": len(sequence)}}}]
+    for index, (expected, actual) in enumerate(zip(expected_items, items)):
+        if not isinstance(actual, dict):
+            failures.append({"kind": "trace_shape", "index": index, "line": sequence[index],
+                             "mismatches": {"trace_shape": {"expected": "object", "actual": type(actual).__name__}}})
+            continue
         mismatches = {
             key: {"expected": value, "actual": actual.get(key)}
             for key, value in expected.items()
@@ -95,7 +112,13 @@ def minimize_failure(data: Dict[str, Any], grbl_root: Path, failure: Dict[str, A
         trial_data["lines"] = list(lines)
         trial_data["events"] = list(lines)
         trace = run_policy_trace(trial_data, grbl_root) if data.get("domain") in {"license", "paper_bt_ack"} else trace_for(trial_data, lines, grbl_root)
-        actual = trace_items(trace)[list(lines).index(target_line)]
+        try:
+            items = trace_items(trace)
+        except ValueError:
+            return False
+        if len(items) != len(lines) or any(not isinstance(item, dict) for item in items):
+            return False  # 不把结构损坏误当成原字段差异的最小复现。
+        actual = items[list(lines).index(target_line)]
         return any(actual.get(key) != detail["expected"] for key, detail in target_mismatches.items())
 
     return minimize_lines(scenario_sequence(data), still_fails)
@@ -105,15 +128,19 @@ def run_scenario(path: Path, grbl_root: Path, shrink: bool = True) -> Dict[str, 
     data = load_scenario(path)
     trace = run_policy_trace(data, grbl_root) if data.get("domain") in {"license", "paper_bt_ack"} else trace_for(data, data["lines"], grbl_root)
     failures = evaluate(data, trace)
+    try:
+        items = trace_items(trace)
+    except ValueError:
+        items = []
     report: Dict[str, Any] = {
         "name": data["name"],
         "path": path.relative_to(HERE.parent).as_posix(),
         "status": "pass" if not failures else "fail",
         "lines": scenario_sequence(data),
-        "trace": trace_items(trace),
+        "trace": items,
         "failures": failures,
     }
-    if failures and shrink:
+    if failures and shrink and not any(item.get("kind") in {"trace_length", "trace_shape"} for item in failures):
         minimal = minimize_failure(data, grbl_root, failures[0])
         report["minimal_failure"] = {"target": failures[0], "lines": minimal}
         report["minimal_regression_case"] = {

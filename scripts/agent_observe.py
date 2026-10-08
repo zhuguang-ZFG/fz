@@ -154,7 +154,8 @@ def _wokwi_startup_findings(report: Any, layer_status: Optional[str]) -> List[Di
     if report.get("status") == "pass":
         startup = report.get("startup") if isinstance(report.get("startup"), dict) else {}
         return [_finding("info", "wokwi_startup", "Wokwi ESP32 startup reached firmware ready marker", detail=f"ready={startup.get('ready_hits', [])}; boots={startup.get('boot_count', 0)}", refs=["results/wokwi/wokwi_smoke_report.json", "results/wokwi/serial.log"])]
-    if report.get("blocking") is False and report.get("cloud_error") in {"unauthorized", "transport"}:
+    # 与runner的PRE_START_CLOUD_ERRORS对齐；只有已判为非阻断的启动前失败才软化。
+    if report.get("blocking") is False and report.get("cloud_error") in {"unauthorized", "transport", "quota"}:
         return [_finding("soft", "wokwi_startup", "Wokwi cloud unavailable before firmware startup", detail=str(report["cloud_error"]), action="retry chip_sim/run_wokwi_smoke.py; startup not verified", refs=["results/wokwi/wokwi_smoke_report.json"])]
     if report.get("cloud_error") == "unauthorized":
         return [_finding("hard", "wokwi_startup", "Wokwi cloud authentication failed", detail="WOKWI_CLI_TOKEN was rejected before firmware startup", action="refresh the GitHub/user WOKWI_CLI_TOKEN and rerun", refs=["results/wokwi/wokwi_smoke_report.json"])]

@@ -31,16 +31,19 @@ class TestGoldenRecord(unittest.TestCase):
         self.assertIn("DRY", r.stdout)
 
     def test_from_last_pass_writes(self) -> None:
-        last = FZ / "protocol_sim" / "results" / "last_report.json"
-        if not last.is_file():
-            self.skipTest("no last_report")
         with tempfile.TemporaryDirectory() as td:
-            out = Path(td)
+            # 本用例只测试录制行为，不依赖上次门禁留下的报告内容或顺序。
+            last = Path(td) / "report.json"
+            last.write_text(json.dumps([{"name": "smoke_ok", "kind": "pass", "passed": True,
+                "lines": [{"line": "G21", "responses": ["ok"]}]}]), encoding="utf-8")
+            out = Path(td) / "golden"
             r = subprocess.run(
                 [
                     sys.executable,
                     str(FZ / "scripts" / "golden_record.py"),
                     "--from-last",
+                    "--report",
+                    str(last),
                     "--kinds",
                     "pass",
                     "--only",

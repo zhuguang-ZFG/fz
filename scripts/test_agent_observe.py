@@ -237,6 +237,38 @@ class TestAgentObserve(unittest.TestCase):
         report["blocking"] = True
         self.assertEqual(mod._wokwi_startup_findings(report, "fail")[0]["severity"], "hard")
 
+    def test_prestart_quota_is_soft_and_matches_runner_categories(self):
+        import ast
+        from scripts import agent_observe as observe
+        # 从runner读取在用分类，防止下一次加新类别却漏同步observe。
+        source = (Path(observe.__file__).resolve().parents[1] / "chip_sim/run_wokwi_smoke.py").read_text(encoding="utf-8")
+        categories = next(ast.literal_eval(node.value) for node in ast.parse(source).body
+            if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and
+                target.id == "PRE_START_CLOUD_ERRORS" for target in node.targets))
+        for category in categories:
+            with self.subTest(category=category):
+                report = {"status": "fail", "cloud_error": category, "blocking": False}
+                self.assertEqual(observe._wokwi_startup_findings(report, "fail")[0]["severity"], "soft")
+
+    def test_quota_warning_does_not_reverse_nonblocking_gate_verdict(self):
+        layer = {"id": "wokwi_startup", "status": "fail", "blocking": False}
+        gate = {"overall_status": "pass", "layers": [layer], "failures": [layer]}
+        report = {"status": "fail", "cloud_error": "quota", "blocking": False,
+                  "startup": {"uart_line_count": 0, "fatal_events": [{"kind": "ready_timeout"}]}}
+        result = self._observe_reports(gate, **{"wokwi_smoke_report.json": report})
+        self.assertEqual(result["summary"]["hard_findings"], 0)
+        self.assertFalse(result["summary"]["agent_should_block_done_claim"])
+        self.assertTrue(any(row["category"] == "wokwi_startup" and row["severity"] == "soft"
+                            for row in result["findings"]))
+
+    def test_quota_does_not_exempt_blocking_or_unknown_failure(self):
+        from scripts import agent_observe as observe
+        for report in ({"status": "fail", "cloud_error": "quota", "blocking": True},
+                       {"status": "fail", "cloud_error": "quota"},
+                       {"status": "fail", "cloud_error": "timeout", "blocking": False}):
+            with self.subTest(report=report):
+                self.assertEqual(observe._wokwi_startup_findings(report, "fail")[0]["severity"], "hard")
+
     def test_skipped_wokwi_ignores_stale_report(self) -> None:
         import importlib.util
 
