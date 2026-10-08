@@ -48,6 +48,8 @@ from sim_common.grbl_tcp import (  # noqa: E402
     parse_mpos,
     wait_idle,
 )
+from sim_common.case_result import case_counts, case_status
+from scripts.gate_report import atomic_write_json
 from sim_common.ports import find_free_port  # noqa: E402
 
 
@@ -62,11 +64,16 @@ RUNS = RESULTS / "runs"
 @dataclass
 class CaseResult:
     name: str
-    passed: bool
+    passed: Optional[bool]
     detail: str = ""
     mpos: Optional[List[float]] = None
     responses: List[str] = field(default_factory=list)
     source: str = "builtin"
+    skipped: bool = False
+
+    def __post_init__(self):
+        if self.skipped:
+            self.passed = None
 
 
 def make_run_id() -> str:
@@ -74,11 +81,6 @@ def make_run_id() -> str:
     return f"{timestamp}-{os.getpid()}-{uuid.uuid4().hex[:6]}"
 
 
-def atomic_write_json(path: Path, data: Dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    os.replace(temp, path)
 
 
 def atomic_copy(source: Path, destination: Path) -> None:
@@ -138,8 +140,8 @@ def run_repeated(argv: Sequence[str], repeat: int, base_run_id: str) -> int:
         report: Dict[str, Any] = {}
         if report_path.is_file():
             report = json.loads(report_path.read_text(encoding="utf-8"))
-        run_failed = completed.returncode != 0 or any(
-            case.get("passed") is False
+        run_failed = completed.returncode != 0 or not report or any(
+            case_status(case) == "fail"
             for case in report.get("cases", [])
             if isinstance(case, dict)
         )
@@ -182,6 +184,7 @@ def run_repeated(argv: Sequence[str], repeat: int, base_run_id: str) -> int:
         "step_log": last_report.get("step_log"),
         "block_log": last_report.get("block_log"),
         "json_cases": last_report.get("json_cases"),
+        "counts": case_counts(cases),
         "cases": cases,
     }
     atomic_write_json(aggregate_dir / "report.json", aggregate)
@@ -364,7 +367,8 @@ def run_feed_hold_plant(
     if time_factor <= 0:
         return CaseResult(
             "plant_feed_hold",
-            True,
+            None,
+            skipped=True,
             detail="skipped (need --time-factor > 0; use 1 for plant)",
         )
     assert client.sock
@@ -760,6 +764,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     CaseResult(
                         name=jr.name,
                         passed=jr.passed,
+                        skipped=jr.skipped,
                         detail=jr.detail,
                         mpos=jr.mpos,
                         responses=jr.responses,
@@ -838,17 +843,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         results.append(
             CaseResult(
                 name="session_meta_skipped",
-                passed=True,
+                passed=None,
+                skipped=True,
                 detail="--only set: skip session step/block lower-bound checks",
             )
         )
 
-    failed = [r for r in results if not r.passed]
+    failed = [r for r in results if case_status(asdict(r)) == "fail"]
     print("=== hardware_sim report ===")
     for r in results:
         src = f"/{r.source}" if getattr(r, "source", None) else ""
         print(
-            f"  [{'PASS' if r.passed else 'FAIL'}] {r.name}{src}"
+            f"  [{case_status(asdict(r)).upper()}] {r.name}{src}"
             + (f" — {r.detail}" if r.detail else "")
         )
         if r.mpos:
@@ -870,6 +876,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "block_log": str(block_log) if block_log.is_file() else None,
         "eeprom": str(eeprom) if eeprom.is_file() else None,
         "json_cases": run_json,
+        "counts": case_counts([asdict(r) for r in results]),
         "cases": [asdict(r) for r in results],
     }
     out = run_dir / "report.json"

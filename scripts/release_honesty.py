@@ -6,7 +6,7 @@ Release honesty check — EDA-inspired (KiCad ERC/DRC before fab).
 Does NOT flash boards. Combines:
   - last agent_gate / SIL artifacts
   - soft_divergence warnings
-  - optional G3/G4 evidence presence vs scope flags
+  - structured G3/G4 evidence and current source identity vs scope flags
   - forbidden marketing claims in free text
 
 Exit:
@@ -22,6 +22,8 @@ import json
 import os
 import re
 import subprocess
+import sys
+import math
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +33,9 @@ from typing import Any, Dict, List, Optional
 FZ_ROOT = Path(__file__).resolve().parent.parent
 RESULTS = FZ_ROOT / "results"
 OUT_PATH = RESULTS / "release_honesty_last.json"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from gate_report import atomic_write_json
+from release_inputs import load_scope, validate_signoff_evidence
 
 FORBIDDEN = [
     (re.compile(r"纸路.*已验证|paper.*verified", re.I), "paper_path_verified"),
@@ -46,14 +51,15 @@ def _read_json(path: Path) -> Optional[Any]:
         return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, ValueError, UnicodeError):
         return None
 
 
 def _file_age_hours(path: Path) -> Optional[float]:
-    if not path.is_file():
+    try:
+        return (time.time() - path.stat().st_mtime) / 3600.0
+    except OSError:
         return None
-    return (time.time() - path.stat().st_mtime) / 3600.0
 
 
 def _scan_claims(text: str) -> List[str]:
@@ -80,11 +86,23 @@ def _git_head(repo: Optional[Path]) -> Optional[str]:
     return (r.stdout or "").strip() or None if r.returncode == 0 else None
 
 
+def _git_dirty(repo: Optional[Path]) -> Optional[bool]:
+    if repo is None or not Path(repo).exists():
+        return None
+    try:
+        result = subprocess.run(["git", "status", "--porcelain", "--untracked-files=normal"],
+                                cwd=repo, capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return bool(result.stdout.strip()) if result.returncode == 0 else None
+
+
 def check_code_identity(
     gate: Dict[str, Any],
     current: Dict[str, Optional[str]],
     scope_raw: str = "",
     sign_off: bool = False,
+    current_dirty: Optional[Dict[str, Optional[bool]]] = None,
 ) -> Dict[str, List[str]]:
     """门禁报告必须绑在当前代码上（必修#2）。
 
@@ -103,18 +121,24 @@ def check_code_identity(
         )
         return {"blockers": blockers, "warnings": warnings, "notes": notes}
 
+    current_dirty = current_dirty or {}
     for repo_key, label in (("fz", "fz"), ("grbl", "GRBL_ROOT")):
+        dirty_now = current_dirty.get(repo_key)
+        if sign_off and dirty_now is not False:
+            blockers.append(f"{label}: 当前工作树脏或状态未知，不能签核")
+        elif not sign_off and dirty_now is not False:
+            warnings.append(f"{label}: 当前工作树脏或状态未知 [dev 允许]")
         recorded = (identity.get(repo_key) or {}) if isinstance(identity.get(repo_key), dict) else {}
         sha = recorded.get("sha")
         now = current.get(repo_key)
         if sha is None and now is None:
-            notes.append(f"{label}: 无 git 身份（仓缺失或非 git 树）")
+            (blockers if sign_off else notes).append(f"{label}: 无 git 身份（仓缺失或非 git 树）")
             continue
-        if sha is None:
+        if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", sha):
             blockers.append(f"{label}: 门禁报告缺 sha，但当前树有 HEAD {str(now)[:12]} — 重跑门禁")
             continue
         if now is None:
-            warnings.append(f"{label}: 当前取不到 HEAD，无法比对报告 sha {sha[:12]}")
+            (blockers if sign_off else warnings).append(f"{label}: 当前取不到 HEAD，无法比对报告 sha {str(sha)[:12]}")
             continue
         if sha != now:
             blockers.append(
@@ -123,25 +147,24 @@ def check_code_identity(
             )
             continue
         notes.append(f"{label}: sha {sha[:12]} 与当前 HEAD 相符")
-        if recorded.get("dirty"):
+        if recorded.get("dirty") is not False:
             msg = f"{label}: 门禁运行时工作树脏（sha {sha[:12]} 不能完整描述被测代码）"
             if sign_off:
                 blockers.append(msg)
             else:
                 warnings.append(msg + " [dev 允许]")
 
+    # scope已按结构解析；保留旧函数调用中的文本SHA校验兼容面。
     for key, repo_key in (("fz_git_sha", "fz"), ("grbl_git_sha", "grbl")):
-        m = re.search(rf"^\s*{key}\s*:\s*[\"']?([0-9a-fA-F]{{7,40}})", scope_raw, re.M)
-        if not m:
+        match = re.search(rf'^\s*{key}\s*:\s*["\']?([0-9a-fA-F]{{7,40}})', scope_raw, re.M)
+        if not match:
             continue
-        declared = m.group(1).lower()
-        recorded = (identity.get(repo_key) or {}).get("sha") or ""
-        if not recorded.lower().startswith(declared) and not declared.startswith(recorded.lower()):
-            blockers.append(
-                f"scope 声明 {key}={declared[:12]}，门禁报告实跑 {recorded[:12] or 'unknown'} — 两者必须一致"
-            )
-        else:
-            notes.append(f"scope {key}={declared[:12]} 与门禁报告相符")
+        recorded_identity = identity.get(repo_key)
+        recorded = recorded_identity.get("sha") if isinstance(recorded_identity, dict) else None
+        if not isinstance(recorded, str):
+            recorded = ""
+        if not recorded or not recorded.lower().startswith(match.group(1).lower()):
+            blockers.append(f"scope 声明 {key} 与门禁报告不符")
 
     return {"blockers": blockers, "warnings": warnings, "notes": notes}
 
@@ -169,13 +192,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--g3-evidence",
         type=Path,
         default=None,
-        help="filled g3 evidence yaml (presence check)",
+        help="validated G3 evidence YAML/JSON with source identity and log files",
     )
     ap.add_argument(
         "--g4-evidence",
         type=Path,
         default=None,
-        help="filled g4 evidence yaml (presence check)",
+        help="validated G4 evidence YAML/JSON with source identity and log files",
     )
     ap.add_argument(
         "--claims-file",
@@ -203,7 +226,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     gate_path = RESULTS / "agent_gate_last.json"
     gate = _read_json(gate_path)
+    if not isinstance(gate, dict):
+        gate = None
     age_h = _file_age_hours(gate_path)
+    if not math.isfinite(args.max_age_hours) or args.max_age_hours <= 0:
+        blockers.append("max-age-hours必须为有限正数")
     sil_ok = False
     if gate is None:
         msg = "missing results/agent_gate_last.json — run: python scripts/agent_gate.py"
@@ -221,8 +248,24 @@ def main(argv: Optional[List[str]] = None) -> int:
                 f"agent_gate report too old: {age_h:.1f}h > {args.max_age_hours}h — re-run gate"
             )
         notes.append(f"agent_gate profile={gate.get('profile')} age_h={age_h}")
+        if gate.get("run_state", "completed") != "completed":
+            blockers.append("agent_gate本轮未完成，不能使用其结果")
+        for layer in gate.get("layers") or []:
+            if not isinstance(layer, dict):
+                blockers.append("agent_gate层格式错误")
+                continue
+            status, name = layer.get("status"), str(layer.get("id") or "unknown")
+            if status == "fail":
+                if layer.get("blocking") is False:
+                    warnings.append(f"{name}: 非阻断失败；启动或检查仍未验证")
+                else:
+                    blockers.append(f"agent_gate层{name}失败")
+            elif status == "skip":
+                warnings.append(f"{name}: 已跳过；检查未验证")
 
     soft = _read_json(FZ_ROOT / "protocol_sim" / "results" / "soft_divergence.json") or {}
+    if not isinstance(soft, dict):
+        soft = {}
     high = list(soft.get("high_divergence") or [])
     if high:
         warnings.append(
@@ -232,26 +275,28 @@ def main(argv: Optional[List[str]] = None) -> int:
     if total_err:
         notes.append(f"soft total_err_lines={total_err}")
 
-    # scope features
     paper = bt = ota = False
     scope_raw = ""
+    scope_data = {}
     scope_path = args.scope
     if scope_path is None:
-        # default pre-release-min style: no paper/ota
-        cand = FZ_ROOT / "release" / "scopes" / "pre-release-min.yaml"
-        if cand.is_file():
-            scope_path = cand
-    if scope_path and scope_path.is_file():
-        raw = scope_path.read_text(encoding="utf-8", errors="replace")
-        scope_raw = raw
-        paper = bool(re.search(r"paper_path\s*:\s*true", raw, re.I))
-        bt = bool(re.search(r"bluetooth\s*:\s*true", raw, re.I))
-        ota = bool(re.search(r"^\s*ota\s*:\s*true", raw, re.I | re.M))
-        notes.append(f"scope={scope_path.name} paper={paper} bt={bt} ota={ota}")
+        candidate = FZ_ROOT / "release/scopes/pre-release-min.yaml"
+        scope_path = candidate if candidate.is_file() else None
+    elif not scope_path.is_absolute():
+        scope_path = FZ_ROOT / scope_path
+    if scope_path is not None:
+        try:
+            scope_data = load_scope(scope_path)
+            features = scope_data["features"]
+            paper, bt, ota = (features[key] for key in ("paper_path", "bluetooth", "ota"))
+            scope_raw = "\n".join(f"{key}: {scope_data[key]}" for key in ("fz_git_sha", "grbl_git_sha") if key in scope_data)
+            notes.append(f"scope={scope_path.name} paper={paper} bt={bt} ota={ota}")
+        except (OSError, ValueError, TypeError, UnicodeError, RecursionError) as error:
+            blockers.append(f"scope无效：{type(error).__name__}: {error}")
 
     # 报告↔代码绑定：mtime 窗口挡不住「代码改了但仍在 24h/168h 内」的旧 pass。
     identity_blocked = False
-    if gate is not None and (args.require_agent_gate or args.strict or args.scope is not None):
+    if gate is not None:
         grbl_root = os.environ.get("GRBL_ROOT") or gate.get("grbl_root")
         found = check_code_identity(
             gate,
@@ -261,27 +306,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             },
             scope_raw=scope_raw,
             sign_off=args.scope is not None,
+            current_dirty={"fz": _git_dirty(FZ_ROOT),
+                           "grbl": _git_dirty(Path(grbl_root)) if grbl_root else None},
         )
         blockers.extend(found["blockers"])
         warnings.extend(found["warnings"])
         notes.extend(found["notes"])
         identity_blocked = bool(found["blockers"])
-
-    def _evidence_ok(path: Optional[Path]) -> bool:
-        if path is None:
-            return False
-        p = path if path.is_absolute() else FZ_ROOT / path
-        if not p.is_file():
-            return False
-        # reject pure templates left unfilled (heuristic)
-        t = p.read_text(encoding="utf-8", errors="replace")
-        if "TODO" in t or "template" in p.name.lower() and "pass" not in t.lower():
-            # sample-pass files are ok
-            if "sample-pass" in p.name or re.search(r"result:\s*[\"']?pass", t, re.I):
-                return True
-            if "template" in p.name.lower():
-                return False
-        return True
 
     def _as_opt_path(p: Optional[Path]) -> Optional[Path]:
         if p is None or not str(p).strip():
@@ -297,28 +328,23 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     hil_required = bool(paper or bt or ota)
     hil_ok = True
-    if paper or bt:
-        if not _evidence_ok(g3):
+    evidence_reports = {}
+    identities = (gate or {}).get("code_identity")
+    product_identity = identities.get("grbl") if isinstance(identities, dict) else {}
+    if not isinstance(product_identity, dict):
+        product_identity = {}
+    for kind, required, path in (("g3", paper or bt, g3), ("g4", ota, g4)):
+        if not required:
+            continue
+        valid, detail = (False, {"status": "unknown", "errors": ["未提供证据文件"]})
+        if path is not None:
+            valid, detail = validate_signoff_evidence(path, scope_data["features"], kind,
+                                                       FZ_ROOT, product_identity.get("sha"))
+        evidence_reports[kind] = detail
+        if not valid:
             hil_ok = False
-            msg = (
-                "scope needs paper/bt HIL evidence — provide --g3-evidence filled YAML "
-                "(not unfilled template)"
-            )
-            if args.allow_pending_hil:
-                warnings.append(msg + " [pending allowed]")
-            else:
-                blockers.append(msg)
-    if ota:
-        if not _evidence_ok(g4):
-            hil_ok = False
-            msg = (
-                "scope needs OTA evidence — provide --g4-evidence filled YAML "
-                "or USB dual-flash merge"
-            )
-            if args.allow_pending_hil:
-                warnings.append(msg + " [pending allowed]")
-            else:
-                blockers.append(msg)
+            message = f"{kind}验收未通过：" + "; ".join(detail.get("errors", []))
+            (warnings if args.allow_pending_hil else blockers).append(message)
 
     if not hil_required:
         hil_ok = True
@@ -334,7 +360,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         blockers.append("forbidden claims in --claims-file: " + ", ".join(claim_hits))
 
     # verdict
-    if not sil_ok or identity_blocked or any("agent_gate" in b or "too old" in b for b in blockers):
+    if not sil_ok or blockers:
         verdict = "blocked"
     elif claim_hits:
         verdict = "blocked"
@@ -363,6 +389,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "agent_gate_generated_at": (gate or {}).get("generated_at"),
         "agent_gate_code_identity": (gate or {}).get("code_identity"),
         "code_identity_ok": (gate is not None and not identity_blocked),
+        "evidence": evidence_reports,
         "hil_required": hil_required,
         "hil_ok": hil_ok,
         "soft_high_divergence": high,
@@ -381,7 +408,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     out = args.out if args.out.is_absolute() else FZ_ROOT / args.out
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    atomic_write_json(out, report)
 
     print("=== release_honesty (EDA-style) ===")
     print(f"verdict: {verdict}")
@@ -394,10 +421,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"  note:  {n}")
     print(f"report: {out}")
 
-    if verdict == "blocked":
-        return 1
     if args.strict and gate is None:
         return 2
+    if verdict == "blocked":
+        return 1
     return 0
 
 

@@ -67,11 +67,16 @@ DEFAULT_STEPS_PER_MM = (250.0, 250.0, 250.0)
 @dataclass
 class CaseResult:
     name: str
-    passed: bool
+    passed: Optional[bool]
     detail: str = ""
     mpos: Optional[List[float]] = None
     responses: List[str] = field(default_factory=list)
     source: str = "json"
+    skipped: bool = False
+
+    def __post_init__(self):
+        if self.skipped:
+            self.passed = None
 
 
 def _match_expect(resp: Sequence[str], expect: str) -> bool:
@@ -153,7 +158,8 @@ def run_json_case(
     if time_factor < tmin:
         return CaseResult(
             name=cid,
-            passed=True,
+            passed=None,
+            skipped=True,
             detail=f"skipped (need time_factor>={tmin}, have {time_factor})",
             source="json",
         )

@@ -25,6 +25,8 @@ FZ_ROOT = Path(__file__).resolve().parent.parent
 RESULTS = FZ_ROOT / "results"
 OUT_JSON = RESULTS / "agent_observe_last.json"
 OUT_MD = RESULTS / "agent_observe_last.md"
+sys.path.insert(0, str(FZ_ROOT))
+from sim_common.case_result import case_counts
 
 
 def _read_json(path: Path) -> Optional[Any]:
@@ -382,14 +384,14 @@ def build_observe() -> Dict[str, Any]:
     hw_rep = _read_json(FZ_ROOT / "hardware_sim" / "results" / "last_hw_report.json")
     if isinstance(hw_rep, dict) and hw_rep.get("cases") is not None:
         cases = [c for c in (hw_rep.get("cases") or []) if isinstance(c, dict)]
-        n_pass = sum(1 for c in cases if c.get("passed") is True)
-        n_fail = sum(1 for c in cases if c.get("passed") is False)
+        counts = case_counts(cases)
+        n_pass, n_fail, n_skip = counts["passed"], counts["failed"], counts["skipped"]
         step_log = hw_rep.get("step_log") or ""
         findings.append(
             _finding(
-                "hard" if n_fail else "info",
+                "hard" if n_fail and not _hw_stale else "info",
                 "hardware_stats",
-                f"last hardware_sim cases {n_pass}/{len(cases)} fail={n_fail}",
+                f"last hardware_sim executed={counts['executed']} pass={n_pass} fail={n_fail} skip={n_skip}",
                 detail=f"engine={hw_rep.get('engine')} step_log={step_log}",
                 action="python hardware_sim/run_hw_sim.py --start-sim" if n_fail else "",
                 refs=[
@@ -729,7 +731,7 @@ def build_observe() -> Dict[str, Any]:
             "soft_findings": soft_n,
             "info_findings": sum(1 for f in findings if f["severity"] == "info"),
             "optimize_findings": sum(1 for f in findings if f["severity"] == "optimize"),
-            "agent_should_block_done_claim": hard_n > 0 or overall == "fail",
+            "agent_should_block_done_claim": hard_n > 0 or overall != "pass" or gate.get("run_state", "completed") != "completed",
             "agent_should_prefer_standard": bool(
                 touch.get("motion_planner") or touch.get("product_custom")
             )
@@ -740,6 +742,7 @@ def build_observe() -> Dict[str, Any]:
                 for sf in soft_files
                 if isinstance(sf, dict) and int(sf.get("err_lines") or 0) > 0
             ],
+            "hardware_case_counts": case_counts([case for case in (hw_rep.get("cases") or []) if isinstance(case, dict)]) if isinstance(hw_rep, dict) else case_counts([]),
             "hardware_cases_in_last_report": (
                 len(hw_rep.get("cases") or [])
                 if isinstance(hw_rep, dict)

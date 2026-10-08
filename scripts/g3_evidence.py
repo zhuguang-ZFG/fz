@@ -31,16 +31,11 @@ G3A_IDS = ("g3a.flash", "g3a.boot", "g3a.ident", "g3a.motion", "g3a.reset")
 
 
 def _load_yaml(path: Path) -> Dict[str, Any]:
-    text = path.read_text(encoding="utf-8")
     try:
-        import yaml  # type: ignore
-
-        data = yaml.safe_load(text)
-        if isinstance(data, dict):
-            return data
-    except Exception:
-        pass
-    return _parse_simple(text)
+        from .release_inputs import load_mapping
+    except ImportError:
+        from release_inputs import load_mapping
+    return load_mapping(path)
 
 
 def _parse_simple(text: str) -> Dict[str, Any]:
@@ -101,7 +96,10 @@ def validate_g3_evidence(
     if not path.is_file():
         return "unknown", {"error": f"missing file {path}"}
 
-    data = _load_yaml(path)
+    try:
+        data = _load_yaml(path)
+    except (OSError, ValueError, TypeError, UnicodeError, RecursionError) as error:
+        return "fail", {"error": f"证据解析失败：{type(error).__name__}"}
     items = _item_map(data)
     if not items:
         return "fail", {"error": "no items[] in evidence file"}

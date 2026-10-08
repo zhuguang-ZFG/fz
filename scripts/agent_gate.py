@@ -569,6 +569,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(CONTRACT)
         return 0
 
+    # 报告工具只有标准库依赖；产品模块导入失败仍能发布本轮失败。
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from gate_report import GateRun
+    output = args.json_out if args.json_out.is_absolute() else FZ_ROOT / args.json_out
+    try:
+        with GateRun(output, RESULTS / "agent_gate.lock") as run:
+            return _run_gate(args, run)
+    except KeyboardInterrupt:
+        print("门禁被中断；本轮不得作为通过证据", file=sys.stderr)
+        return 130
+    except Exception as error:
+        print(f"门禁失败：{type(error).__name__}: {error}", file=sys.stderr)
+        return 1
+
+
+def _run_gate(args, run):
     grbl = args.grbl_root or Path(os.environ.get("GRBL_ROOT", "D:/Users/Grbl_Esp32"))
     if not grbl.is_dir():
         grbl = None
@@ -595,10 +611,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             product = identify_product(grbl)
         except (OSError, ValueError) as exc:
             layers.append(Layer(id="product_profile", name="product_profile", status="fail", detail=str(exc)))
-            return _finish(layers, profile, touch, grbl, args.json_out, 1, time.time() - t_all)
+            return _finish(layers, profile, touch, grbl, args.json_out, 1, time.time() - t_all, run)
         layers.append(Layer(id="product_profile", name="product_profile", status="pass", detail=product.sku))
         # 所有子进程用同一解析后的目标，--grbl-root 不得与继承的环境变量分叉。
         os.environ["GRBL_ROOT"] = str(grbl.resolve())
+    else:
+        layers.append(Layer(id="product_profile", name="product_profile", status="skip", detail="GRBL_ROOT unavailable；产品身份未验证"))
+        layers.append(Layer(id="product_host", name="product_host_regressions", status="skip", detail="GRBL_ROOT unavailable；产品回归未执行"))
     paper_enabled = product is not None and product.sku == "paper"
     paper_skip = "无换纸 SKU：已核对身份，不适用纸路纯核心" if product else "GRBL_ROOT unavailable"
     pin_contract = FZ_ROOT / "hardware_sim" / (product.pin_contract if product else "machine_pin_contract.json")
@@ -624,7 +643,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 detail="sim binary not found",
             )
         )
-        return _finish(layers, profile, touch, grbl, args.json_out, 2, time.time() - t_all)
+        return _finish(layers, profile, touch, grbl, args.json_out, 2, time.time() - t_all, run)
 
     layers.append(
         Layer(id="preflight", name="grblHAL_sim", status="pass", detail=str(sim))
@@ -1385,7 +1404,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     hard_fail = any(x.status == "fail" and x.blocking for x in layers)
     overall = 1 if hard_fail else 0
     return _finish(
-        layers, profile, touch, grbl, args.json_out, overall, time.time() - t_all
+        layers, profile, touch, grbl, args.json_out, overall, time.time() - t_all, run
     )
 
 
@@ -1397,6 +1416,7 @@ def _finish(
     json_out: Path,
     overall: int,
     duration_s: float,
+    run,
 ) -> int:
     failures = [asdict(x) for x in layers if x.status == "fail"]
     hints = agent_hints_for_failures(layers)
@@ -1463,7 +1483,7 @@ def _finish(
     }
     out = json_out if json_out.is_absolute() else FZ_ROOT / json_out
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    run.publish(report)
 
     # R34: always refresh one-page triage after gate report is on disk
     try:
