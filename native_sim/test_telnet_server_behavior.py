@@ -117,6 +117,8 @@ inline void grbl_send(uint8_t, const char*) {}
 inline void report_init_message(uint8_t) {}
 inline constexpr uint8_t CLIENT_ALL = 0xff;
 inline constexpr uint8_t CLIENT_TELNET = 3;
+// Serial队列是本夹具的外部边界；真实跨代次队列/半行在产品test_telnet_session中组合验证。
+inline uint32_t client_begin_session(uint8_t) { static uint32_t generation = 0; return ++generation; }
 """
 
 SOCKET_STUB = r"""#pragma once
